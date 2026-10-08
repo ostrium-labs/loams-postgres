@@ -20,6 +20,7 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use postgres_backend::AuthType;
+#[cfg(feature = "storage-clients")]
 use remote_storage::RemoteStorageConfig;
 use serde_with::serde_as;
 use utils::logging::LogFormat;
@@ -208,10 +209,13 @@ pub struct ConfigToml {
     pub pg_auth_type: AuthType,
     pub grpc_auth_type: AuthType,
     pub auth_validation_public_key_path: Option<Utf8PathBuf>,
+    #[cfg(feature = "storage-clients")]
     pub remote_storage: Option<RemoteStorageConfig>,
     pub tenant_config: TenantConfigToml,
+    #[cfg(feature = "storage-clients")]
     #[serde_as(as = "serde_with::DisplayFromStr")]
     pub broker_endpoint: storage_broker::Uri,
+    #[cfg(feature = "storage-clients")]
     #[serde(with = "humantime_serde")]
     pub broker_keepalive_interval: Duration,
     #[serde_as(as = "serde_with::DisplayFromStr")]
@@ -221,6 +225,7 @@ pub struct ConfigToml {
     #[serde(with = "humantime_serde")]
     pub metric_collection_interval: Duration,
     pub metric_collection_endpoint: Option<reqwest::Url>,
+    #[cfg(feature = "storage-clients")]
     pub metric_collection_bucket: Option<RemoteStorageConfig>,
     #[serde(with = "humantime_serde")]
     pub synthetic_size_calculation_interval: Duration,
@@ -654,6 +659,7 @@ pub struct TenantConfigToml {
 }
 
 pub mod defaults {
+    #[cfg(feature = "storage-clients")]
     pub use storage_broker::DEFAULT_ENDPOINT as BROKER_DEFAULT_ENDPOINT;
 
     use crate::models::ImageCompressionAlgorithm;
@@ -741,10 +747,13 @@ impl Default for ConfigToml {
             pg_auth_type: (AuthType::Trust),
             grpc_auth_type: (AuthType::Trust),
             auth_validation_public_key_path: (None),
+            #[cfg(feature = "storage-clients")]
             remote_storage: None,
+            #[cfg(feature = "storage-clients")]
             broker_endpoint: (storage_broker::DEFAULT_ENDPOINT
                 .parse()
                 .expect("failed to parse default broker endpoint")),
+            #[cfg(feature = "storage-clients")]
             broker_keepalive_interval: (humantime::parse_duration(
                 storage_broker::DEFAULT_KEEPALIVE_INTERVAL,
             )
@@ -767,6 +776,7 @@ impl Default for ConfigToml {
             .expect("cannot parse default synthetic size calculation interval")),
             metric_collection_endpoint: (DEFAULT_METRIC_COLLECTION_ENDPOINT),
 
+            #[cfg(feature = "storage-clients")]
             metric_collection_bucket: (None),
 
             disk_usage_based_eviction: DiskUsageEvictionTaskConfig::default(),

@@ -11,7 +11,8 @@ testing = ["pageserver_api/testing"]
 async-compression.workspace = true
 anyhow.workspace = true
 bytes.workspace = true
-pageserver_api.workspace = true
+# Only the API types: the configuration's storage clients stay out.
+pageserver_api = { path = "../pageserver_api", default-features = false }
 prost.workspace = true
 postgres_ffi.workspace = true
 postgres_ffi_types.workspace = true

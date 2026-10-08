@@ -10,7 +10,6 @@ bytes.workspace = true
 anyhow.workspace = true
 crc32c.workspace = true
 once_cell.workspace = true
-pprof.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 postgres_ffi_types.workspace = true
@@ -19,6 +18,9 @@ tracing.workspace = true
 postgres_versioninfo.workspace = true
 
 [dev-dependencies]
+# Only the waldecoder bench uses it; as a normal dependency it brought its
+# flamegraph renderer (inferno) into every consumer.
+pprof.workspace = true
 criterion.workspace = true
 env_logger.workspace = true
 postgres.workspace = true
