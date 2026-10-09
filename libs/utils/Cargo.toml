@@ -5,8 +5,12 @@ edition.workspace = true
 license.workspace = true
 
 [features]
-default = ["rename_noreplace"]
+default = ["rename_noreplace", "tarball"]
 rename_noreplace = []
+# The zstd tarball helpers (`utils::zstd`), used by pageserver and safekeeper.
+# API-only consumers (pageserver_api, postgres_ffi, wal_decoder) turn default
+# features off, which keeps tokio-tar (RUSTSEC-2025-0111) out of their graph.
+tarball = ["dep:tokio-tar"]
 # Enables test-only APIs, incuding failpoints. In particular, enables the `fail_point!` macro,
 # which adds some runtime cost to run tests on outage conditions
 testing = ["fail/failpoints"]
@@ -37,8 +41,8 @@ serde_with.workspace = true
 serde_json.workspace = true
 signal-hook.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["signal"] }
-tokio-tar.workspace = true
+tokio = { workspace = true, features = ["fs", "signal"] }
+tokio-tar = { workspace = true, optional = true }
 tokio-util.workspace = true
 toml_edit = { workspace = true, features = ["serde"] }
 tracing.workspace = true

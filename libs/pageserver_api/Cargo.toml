@@ -25,7 +25,8 @@ const_format.workspace = true
 anyhow.workspace = true
 bytes.workspace = true
 byteorder.workspace = true
-utils.workspace = true
+# Without the tarball helpers, which keeps tokio-tar out of API-only consumers.
+utils = { path = "../utils", default-features = false, features = ["rename_noreplace"] }
 postgres_ffi_types.workspace = true
 postgres_versioninfo.workspace = true
 posthog_client_lite.workspace = true

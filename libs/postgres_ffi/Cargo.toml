@@ -13,7 +13,8 @@ once_cell.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 postgres_ffi_types.workspace = true
-utils.workspace = true
+# Without the tarball helpers, which keeps tokio-tar out of API-only consumers.
+utils = { path = "../utils", default-features = false, features = ["rename_noreplace"] }
 tracing.workspace = true
 postgres_versioninfo.workspace = true
 

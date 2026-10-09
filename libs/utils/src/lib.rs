@@ -83,6 +83,7 @@ pub mod failpoint_support;
 
 pub mod yielding_loop;
 
+#[cfg(feature = "tarball")]
 pub mod zstd;
 
 pub mod env;

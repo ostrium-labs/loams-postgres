@@ -20,7 +20,8 @@ serde.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["io-util"] }
 tracing.workspace = true
-utils.workspace = true
+# Without the tarball helpers, which keeps tokio-tar out of API-only consumers.
+utils = { path = "../utils", default-features = false, features = ["rename_noreplace"] }
 workspace_hack = { version = "0.1", path = "../../workspace_hack" }
 
 [build-dependencies]
