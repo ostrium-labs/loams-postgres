@@ -1,0 +1,35 @@
+# The patch queue: every commit after neon-fork-point is a listed Loams patch
+# (LOAMS_PATCHES.md, scripts/loams/check-patches.py). Required on main as the
+# check `patches` once Actions are enabled on this repository.
+name: loams-patches
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: loams-patches-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  patches:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # The whole history and the neon-fork-point tag; no submodules.
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - name: Tests
+        run: python3 -I scripts/loams/tests/test_check_patches.py
+      - name: Check the history
+        # A pull request's HEAD is GitHub's merge of it into main; merge
+        # commits are not patches, so this checks main plus the PR's commits.
+        run: python3 -I scripts/loams/check-patches.py --base neon-fork-point --head HEAD
