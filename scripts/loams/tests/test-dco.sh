@@ -2,7 +2,8 @@
 # Tests for scripts/loams/check-dco.sh (NF1 Task 5; dco_rejects_unsigned).
 # Copied from ostrium-labs/loams scripts/ci/test-dco.sh, plus the fork's
 # cases: Neon's history before neon-fork-point and the commits listed in
-# LOAMS_PATCHES.md's "Commits without a trailer" table are exempt.
+# LOAMS_PATCHES.md's "Commits without a trailer" table (read from a trusted
+# revision, EXEMPT_FROM) are exempt.
 set -euo pipefail
 checker="$(cd "$(dirname "$0")/.." && pwd)/check-dco.sh"
 fixture=$(mktemp -d)
@@ -52,22 +53,32 @@ run pass
 git commit -q --allow-empty -m 'ours: unsigned, before the rule'
 unsigned=$(git rev-parse HEAD)
 run fail
-cat > LOAMS_PATCHES.md <<EOF
+table() { # table <sha> <section>: commits a LOAMS_PATCHES.md listing <sha> under <section>.
+  cat > LOAMS_PATCHES.md <<EOF
 ## Patches
 
 | Id | Title | Area | Owner | Since | Origin | Drop when |
 |---|---|---|---|---|---|---|
-| LP-0001 | $unsigned | build | @o | 2026-10-12 | loams-only | never |
+| LP-0001 | A patch | build | @o | 2026-10-12 | loams-only | never |
 
-## Commits without a trailer
+## $2
 
 | Commit | Id | Why |
 |---|---|---|
-| $unsigned | LP-0001 | predates the rules |
+| $1 | LP-0001 | predates the rules |
 EOF
+  git add LOAMS_PATCHES.md
+  git commit -q -m "table: $2" -m 'Signed-off-by: DCO fixture <fixture@example.com>'
+}
+before_table=$unsigned
+table "$unsigned" 'Commits without a trailer'
+# The table at a trusted revision (here HEAD, as on main) exempts the commit.
 run pass
+# A pull request cannot exempt its own unsigned commit: the table is read from
+# the base revision, which does not list it.
+run fail EXEMPT_FROM="$before_table"
 # A sha in another section of the file does not exempt anything.
-sed -i '/^## Commits without a trailer/,$d' LOAMS_PATCHES.md
+table "$unsigned" 'Something else'
 run fail
 # A missing base is an error, not an empty range.
 run fail BASE=no-such-ref

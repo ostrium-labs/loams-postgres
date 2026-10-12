@@ -4,14 +4,17 @@
 # fork, BASE defaults to neon-fork-point, so Neon's history is exempt, and the
 # commits in LOAMS_PATCHES.md's "Commits without a trailer" table are exempt
 # too: they reached main before the rules, and history is never rewritten.
+# The table is read from EXEMPT_FROM (default HEAD), a trusted revision: on a
+# pull request the workflow passes the base commit, so a PR cannot exempt its
+# own commits by editing the table.
 # Test: scripts/loams/tests/test-dco.sh.
 set -euo pipefail
 BASE=${BASE:-neon-fork-point}
 HEAD=${HEAD:-HEAD}
-patches=${PATCHES:-$(git rev-parse --show-toplevel)/LOAMS_PATCHES.md}
+EXEMPT_FROM=${EXEMPT_FROM:-HEAD}
 exempt=""
-if [[ -f $patches ]]; then
-  exempt=$(awk '/^## /{f = ($0 == "## Commits without a trailer"); next} f' "$patches" |
+if patches=$(git show "$EXEMPT_FROM:LOAMS_PATCHES.md" 2>/dev/null); then
+  exempt=$(awk '/^## /{f = ($0 == "## Commits without a trailer"); next} f' <<<"$patches" |
     grep -oE '\b[0-9a-f]{40}\b' || true)
 fi
 # An assignment, so a bad ref fails here instead of giving an empty range.

@@ -33,6 +33,10 @@ jobs:
       - name: Check the history
         # A pull request's HEAD is GitHub's merge of it into main; merge
         # commits are skipped, so this checks main plus the PR's commits.
+        # The exemption table is read from main (the PR's base), never from
+        # the PR itself; on a push to main, HEAD went through review.
+        env:
+          EXEMPT_FROM: ${{ github.event.pull_request.base.sha || 'HEAD' }}
         run: scripts/loams/check-dco.sh
 
   governance:
