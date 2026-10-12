@@ -50,6 +50,7 @@ members = [
     "libs/proxy/tokio-postgres2",
     "endpoint_storage",
     "pgxn/neon/communicator",
+    "fuzz",
 ]
 
 [workspace.package]

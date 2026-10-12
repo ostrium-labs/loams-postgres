@@ -29,6 +29,22 @@ Neon. A vulnerability in PostgreSQL itself (the trees under `vendor/`, which
 come from `ostrium-labs/postgres`) can also be reported to the PostgreSQL
 project at security@postgresql.org; we take its security releases.
 
+## Response targets
+
+Once a vulnerability is confirmed, whether reported to us or found by our own
+checks (daily advisory scans of our dependencies and images, the PostgreSQL
+release feed, and nightly fuzzing), we aim to publish fixed images within:
+
+| Finding | Target |
+|---|---|
+| A PostgreSQL security release | 7 days after the release |
+| CVSS 9.0 or higher, in a component we ship | 72 hours |
+| CVSS 7.0 to 8.9 | 7 days |
+| Others | 30 days (the monthly roll-up) |
+
+These are targets, not guarantees. Each finding is tracked privately with its
+severity and due date (`scripts/loams/sla.py`), and escalated when it is late.
+
 ## Supported versions
 
 There is no release yet. Security fixes land on `main`. Once releases start

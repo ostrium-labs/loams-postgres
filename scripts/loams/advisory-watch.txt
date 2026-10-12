@@ -1,0 +1,17 @@
+# Repositories whose published GitHub security advisories loams-advisories.yml
+# files as findings (scripts/loams/sla.py file --kind ghsa; design §51 §3.7).
+# One owner/repo per line. Each extension's GitHub source in
+# compute/loams-extensions.toml is added to this list when that file exists.
+
+# PgDog, run unmodified beside Loams Postgres (§46 §8.3).
+pgdogdev/pgdog
+
+# The original upstreams of the small forks we still use (NF1 Task 3).
+rust-postgres/rust-postgres
+Azure/azure-sdk-for-rust
+neondatabase/tokio-epoll-uring
+neondatabase/pg_session_jwt
+
+# A signal only: Neon is silent since 2026-08-31 and no fix is expected
+# from it (D820). Its issues are labelled upstream-signal.
+neondatabase/neon

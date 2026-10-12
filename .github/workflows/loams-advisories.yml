@@ -1,0 +1,173 @@
+# Daily security checks (design §51 §3.7, D805; LP-0008):
+#   - RUSTSEC advisories on Cargo.lock (cargo deny);
+#   - Trivy on every image Loams pins (ostrium-labs/loams, deploy/pins/loams-postgres-images.toml);
+#   - Postgres security minors for the supported and maintenance majors (postgresql.org);
+#   - GitHub advisories of PgDog, the extensions' and the small forks' upstreams,
+#     and neondatabase/neon as a signal only (scripts/loams/advisory-watch.txt).
+# Each finding becomes an issue with a severity label and a due date in the
+# private tracker; overdue issues escalate (scripts/loams/sla.py).
+#
+# Needs, besides Actions being enabled on this repository:
+#   - variable LOAMS_SLA_REPO: the private tracker (default ostrium-labs/loams-postgres-security);
+#   - secret LOAMS_SLA_TOKEN: a token that can read and write issues and labels there.
+# On a pull request only the tests run.
+name: loams-advisories
+
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/loams-advisories.yml
+      - scripts/loams/sla.py
+      - scripts/loams/pg-security-feed.py
+      - scripts/loams/advisory-watch.txt
+      - scripts/loams/tests/test_sla.py
+      - scripts/loams/tests/fixtures/sla/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: loams-advisories-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  SLA_REPO: ${{ vars.LOAMS_SLA_REPO || 'ostrium-labs/loams-postgres-security' }}
+  # cargo-deny 0.20.2 (2026-07-09) and Trivy 0.74.0 (2026-08-14), checked by sha256.
+  CARGO_DENY_URL: https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/cargo-deny-0.20.2-x86_64-unknown-linux-musl.tar.gz
+  CARGO_DENY_SHA256: 9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f
+  TRIVY_URL: https://github.com/aquasecurity/trivy/releases/download/v0.74.0/trivy_0.74.0_Linux-64bit.tar.gz
+  TRIVY_SHA256: 2ae6fe3ee734b7fdf11335663e18c75ea12dccc76062f09f164a3b0f8be4371a
+
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: sla.py and pg-security-feed.py tests
+        run: python3 -I scripts/loams/tests/test_sla.py
+
+  rustsec:
+    if: github.event_name != 'pull_request'
+    needs: tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Install cargo-deny
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/deny.tgz" "$CARGO_DENY_URL"
+          echo "$CARGO_DENY_SHA256  $RUNNER_TEMP/deny.tgz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/deny.tgz" -C "$RUNNER_TEMP" --strip-components=1
+      - name: cargo deny check advisories
+        # Exits 1 when it finds advisories; sla.py refuses output without the
+        # summary line, so a run that failed for another reason still fails.
+        run: |
+          "$RUNNER_TEMP/cargo-deny" --format json check advisories 2> "$RUNNER_TEMP/deny.jsonl" || true
+      - name: File findings
+        env:
+          GH_TOKEN: ${{ secrets.LOAMS_SLA_TOKEN }}
+        run: python3 -I scripts/loams/sla.py file --repo "$SLA_REPO" --kind cargo-deny --input "$RUNNER_TEMP/deny.jsonl"
+
+  images:
+    if: github.event_name != 'pull_request'
+    needs: tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: read # our own images, once they are pinned
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Fetch Loams' pin file
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/ostrium-labs/loams/contents/deploy/pins/loams-postgres-images.toml \
+            -H 'Accept: application/vnd.github.raw' > "$RUNNER_TEMP/pins.toml"
+      - name: Install Trivy
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/trivy.tgz" "$TRIVY_URL"
+          echo "$TRIVY_SHA256  $RUNNER_TEMP/trivy.tgz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/trivy.tgz" -C "$RUNNER_TEMP" trivy
+      - name: Scan every pinned digest
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/trivy"
+          n=0
+          for ref in $(python3 -I scripts/loams/sla.py pinned-images --pins "$RUNNER_TEMP/pins.toml"); do
+            n=$((n + 1))
+            echo "trivy: $ref"
+            "$RUNNER_TEMP/trivy" image --quiet --severity HIGH,CRITICAL --format json \
+              --output "$RUNNER_TEMP/trivy/$n.json" "$ref"
+          done
+          test "$n" -gt 0
+      - name: File findings
+        env:
+          GH_TOKEN: ${{ secrets.LOAMS_SLA_TOKEN }}
+        run: python3 -I scripts/loams/sla.py file --repo "$SLA_REPO" --kind trivy --input "$RUNNER_TEMP"/trivy/*.json
+
+  postgres:
+    if: github.event_name != 'pull_request'
+    needs: tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Fetch Loams' pin file
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/ostrium-labs/loams/contents/deploy/pins/loams-postgres-images.toml \
+            -H 'Accept: application/vnd.github.raw' > "$RUNNER_TEMP/pins.toml"
+      - name: Read postgresql.org's release feed
+        run: python3 -I scripts/loams/pg-security-feed.py --pins "$RUNNER_TEMP/pins.toml" --out "$RUNNER_TEMP/pg.json"
+      - name: File findings
+        env:
+          GH_TOKEN: ${{ secrets.LOAMS_SLA_TOKEN }}
+        run: python3 -I scripts/loams/sla.py file --repo "$SLA_REPO" --kind findings --input "$RUNNER_TEMP/pg.json"
+
+  upstreams:
+    if: github.event_name != 'pull_request'
+    needs: tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: GitHub advisories of the watched repositories
+        env:
+          GH_TOKEN: ${{ secrets.LOAMS_SLA_TOKEN }}
+        run: |
+          python3 -I scripts/loams/sla.py file --repo "$SLA_REPO" --kind ghsa \
+            --watch scripts/loams/advisory-watch.txt --manifest compute/loams-extensions.toml
+
+  sweep:
+    # Escalate even when a scan failed.
+    if: always() && github.event_name != 'pull_request'
+    needs: [rustsec, images, postgres, upstreams]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Due dates and escalation
+        env:
+          GH_TOKEN: ${{ secrets.LOAMS_SLA_TOKEN }}
+        run: python3 -I scripts/loams/sla.py sweep --repo "$SLA_REPO" --codeowners CODEOWNERS

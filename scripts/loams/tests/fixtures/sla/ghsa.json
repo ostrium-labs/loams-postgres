@@ -1,0 +1,17 @@
+{
+  "pgdogdev/pgdog": [
+    {"ghsa_id": "GHSA-aaaa-bbbb-cccc", "cve_id": "CVE-2026-50001", "summary": "Authentication bypass in the router", "severity": "critical",
+     "cvss_severities": {"cvss_v3": {"score": 9.1, "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"}, "cvss_v4": {"score": null, "vector_string": null}},
+     "published_at": "2026-10-10T08:00:00Z", "withdrawn_at": null, "html_url": "https://github.com/pgdogdev/pgdog/security/advisories/GHSA-aaaa-bbbb-cccc"},
+    {"ghsa_id": "GHSA-old0-old0-old0", "cve_id": null, "summary": "An old advisory, before the watch window", "severity": "high",
+     "cvss": null, "published_at": "2025-01-01T00:00:00Z", "withdrawn_at": null, "html_url": "https://github.com/pgdogdev/pgdog/security/advisories/GHSA-old0-old0-old0"},
+    {"ghsa_id": "GHSA-with-drawn-0000", "cve_id": null, "summary": "Withdrawn", "severity": "high",
+     "cvss": null, "published_at": "2026-10-09T00:00:00Z", "withdrawn_at": "2026-10-10T00:00:00Z", "html_url": "https://github.com/pgdogdev/pgdog/security/advisories/GHSA-with-drawn-0000"}
+  ],
+  "neondatabase/neon": [
+    {"ghsa_id": "GHSA-neon-sign-al00", "cve_id": null, "summary": "A flaw in Neon's proxy", "severity": "medium",
+     "cvss": {"score": 5.3, "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"}, "published_at": "2026-10-11T00:00:00Z", "withdrawn_at": null,
+     "html_url": "https://github.com/neondatabase/neon/security/advisories/GHSA-neon-sign-al00"}
+  ],
+  "rust-postgres/rust-postgres": []
+}

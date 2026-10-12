@@ -20,6 +20,8 @@ use base64::Engine as _;
 use base64::prelude::BASE64_STANDARD;
 pub(crate) use exchange::{Exchange, exchange};
 pub(crate) use key::ScramKey;
+#[cfg(feature = "fuzzing")]
+pub(crate) use messages::{ClientFinalMessage, ClientFirstMessage};
 pub(crate) use secret::ServerSecret;
 
 const SCRAM_SHA_256: &str = "SCRAM-SHA-256";
