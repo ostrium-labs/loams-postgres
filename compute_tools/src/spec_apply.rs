@@ -814,7 +814,11 @@ async fn get_operations<'a>(
                             }
                         }
                         None => {
-                            let query = if !jwks_roles.contains(role.name.as_str()) {
+                            // Loams (LP-0032): least privilege. A spec role gets LOGIN, its
+                            // password and the options the spec names; only a role the spec
+                            // marks `privileged` gets Neon's admin attributes and membership in
+                            // the privileged role. A JWKS role is always plain.
+                            let query = if role.privileged && !jwks_roles.contains(role.name.as_str()) {
                                 format!(
                                     "CREATE ROLE {} INHERIT CREATEROLE CREATEDB BYPASSRLS REPLICATION IN ROLE {} {}",
                                     role.name.pg_quote(),
@@ -1299,5 +1303,160 @@ async fn get_operations<'a>(
             query: String::from(include_str!("sql/finalize_drop_subscriptions.sql")),
             comment: None,
         }))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::AtomicU64;
+
+    use compute_api::spec::{GenericOption, GenericOptions};
+
+    use super::*;
+
+    const SCRAM: &str = "SCRAM-SHA-256$4096:c2FsdA==$c3RvcmVk:c2VydmVy";
+
+    fn params() -> ComputeNodeParams {
+        ComputeNodeParams {
+            compute_id: "test".to_string(),
+            connstr: url::Url::parse("postgresql://cloud_admin@127.0.0.1:55432/postgres").unwrap(),
+            privileged_role_name: "neon_superuser".to_string(),
+            resize_swap_on_bind: false,
+            set_disk_quota_for_fs: None,
+            #[cfg(target_os = "linux")]
+            filecache_connstr: String::new(),
+            #[cfg(target_os = "linux")]
+            cgroup: String::new(),
+            #[cfg(target_os = "linux")]
+            vm_monitor_addr: String::new(),
+            pgdata: String::new(),
+            pgbin: String::new(),
+            pgversion: String::new(),
+            external_http_port: 0,
+            internal_http_port: 0,
+            remote_ext_base_url: None,
+            installed_extensions_collection_interval: Arc::new(AtomicU64::new(0)),
+            instance_id: None,
+            pg_init_timeout: None,
+            pg_isready_bin: String::new(),
+            lakebase_mode: false,
+            build_tag: String::new(),
+            control_plane_uri: None,
+            config_path_test_only: None,
+        }
+    }
+
+    fn role(name: &str, privileged: bool, options: GenericOptions) -> Role {
+        Role {
+            name: name.to_string(),
+            encrypted_password: Some(SCRAM.to_string()),
+            options,
+            privileged,
+        }
+    }
+
+    fn option(name: &str) -> GenericOptions {
+        Some(vec![GenericOption {
+            name: name.to_string(),
+            value: None,
+            vartype: "bool".to_string(),
+        }])
+    }
+
+    /// The statements `CreateAndAlterRoles` runs for `roles`, against a
+    /// database that already has `existing`.
+    async fn role_queries(roles: Vec<Role>, existing: Vec<Role>, jwks: &[&str]) -> Vec<String> {
+        let file = std::fs::File::open("../libs/compute_api/tests/cluster_spec.json").unwrap();
+        let mut spec: ComputeSpec = serde_json::from_reader(file).unwrap();
+        spec.cluster.roles = roles;
+        let ctx = RwLock::new(MutableApplyContext {
+            roles: existing.into_iter().map(|r| (r.name.clone(), r)).collect(),
+            dbs: HashMap::new(),
+        });
+        let jwks_roles: HashSet<String> = jwks.iter().map(|r| r.to_string()).collect();
+        let params = params();
+        get_operations(&params, &spec, &ctx, &jwks_roles, &CreateAndAlterRoles)
+            .await
+            .unwrap()
+            .map(|op| op.query)
+            .collect()
+    }
+
+    const ADMIN_ATTRIBUTES: [&str; 5] = [
+        "CREATEROLE",
+        "CREATEDB",
+        "BYPASSRLS",
+        "REPLICATION",
+        "IN ROLE",
+    ];
+
+    #[tokio::test]
+    async fn spec_role_gets_least_privilege_by_default() {
+        let queries = role_queries(vec![role("app", false, None)], vec![], &[]).await;
+        assert_eq!(
+            queries,
+            vec![format!("CREATE ROLE \"app\"  LOGIN PASSWORD '{SCRAM}'")]
+        );
+        for attribute in ADMIN_ATTRIBUTES {
+            assert!(
+                !queries[0].contains(attribute),
+                "{attribute} in {}",
+                queries[0]
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn privileged_spec_role_keeps_neon_admin_attributes() {
+        let queries = role_queries(vec![role("owner", true, None)], vec![], &[]).await;
+        assert_eq!(
+            queries,
+            vec![format!(
+                "CREATE ROLE \"owner\" INHERIT CREATEROLE CREATEDB BYPASSRLS REPLICATION IN ROLE neon_superuser  LOGIN PASSWORD '{SCRAM}'"
+            )]
+        );
+    }
+
+    #[tokio::test]
+    async fn spec_role_gets_the_options_it_asks_for() {
+        let queries = role_queries(
+            vec![role("builder", false, option("CREATEDB"))],
+            vec![],
+            &[],
+        )
+        .await;
+        assert_eq!(
+            queries,
+            vec![format!(
+                "CREATE ROLE \"builder\" CREATEDB LOGIN PASSWORD '{SCRAM}'"
+            )]
+        );
+    }
+
+    #[tokio::test]
+    async fn jwks_role_is_never_privileged() {
+        let queries = role_queries(
+            vec![role("authenticated", true, None)],
+            vec![],
+            &["authenticated"],
+        )
+        .await;
+        assert_eq!(
+            queries,
+            vec![format!(
+                "CREATE ROLE \"authenticated\"  LOGIN PASSWORD '{SCRAM}'"
+            )]
+        );
+    }
+
+    #[tokio::test]
+    async fn existing_role_is_only_altered() {
+        let mut old = role("owner", false, None);
+        old.encrypted_password = None;
+        let queries = role_queries(vec![role("owner", true, None)], vec![old], &[]).await;
+        assert_eq!(
+            queries,
+            vec![format!("ALTER ROLE \"owner\"  LOGIN PASSWORD '{SCRAM}'")]
+        );
     }
 }

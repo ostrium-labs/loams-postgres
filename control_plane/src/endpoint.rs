@@ -783,6 +783,8 @@ impl Endpoint {
                             name: PgIdent::from_str("test").unwrap(),
                             encrypted_password: None,
                             options: None,
+                            // neon_local's test user keeps Neon's admin attributes (LP-0032).
+                            privileged: true,
                         }]
                     } else {
                         Vec::new()
@@ -842,6 +844,7 @@ impl Endpoint {
                         name: PgIdent::from_str("test").unwrap(),
                         encrypted_password: None,
                         options: None,
+                        privileged: true,
                     });
                     spec.cluster.databases.push(Database {
                         name: PgIdent::from_str("neondb").unwrap(),

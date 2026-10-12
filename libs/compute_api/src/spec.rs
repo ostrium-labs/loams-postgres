@@ -548,6 +548,13 @@ pub struct Role {
     pub name: PgIdent,
     pub encrypted_password: Option<String>,
     pub options: GenericOptions,
+    /// Loams (LP-0032): create the role as an admin, with Neon's attributes
+    /// (`INHERIT CREATEROLE CREATEDB BYPASSRLS REPLICATION`) and membership
+    /// in the privileged role (`neon_superuser`). By default a role gets only
+    /// `LOGIN`, its password and its `options`. It applies when `compute_ctl`
+    /// creates the role, and never to a role named in `local_proxy_config.jwks`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub privileged: bool,
 }
 
 /// Rust representation of Postgres database info with only those fields
@@ -859,5 +866,35 @@ mod tests {
             spec.features,
             vec![ComputeFeature::ActivityMonitorExperimental]
         );
+    }
+
+    #[test]
+    fn role_privileged_is_opt_in() {
+        // Absent means a plain role; specs written before the field still parse.
+        let plain: Role = serde_json::from_value(serde_json::json!({
+            "name": "app",
+            "encrypted_password": null,
+            "options": null,
+        }))
+        .unwrap();
+        assert!(!plain.privileged);
+        // A plain role serializes as before, without the field.
+        assert!(
+            !serde_json::to_value(&plain)
+                .unwrap()
+                .as_object()
+                .unwrap()
+                .contains_key("privileged")
+        );
+
+        let admin: Role = serde_json::from_value(serde_json::json!({
+            "name": "owner",
+            "encrypted_password": null,
+            "options": null,
+            "privileged": true,
+        }))
+        .unwrap();
+        assert!(admin.privileged);
+        assert_eq!(serde_json::to_value(&admin).unwrap()["privileged"], true);
     }
 }
