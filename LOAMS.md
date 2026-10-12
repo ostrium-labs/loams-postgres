@@ -47,8 +47,9 @@ branch `main`:**
 gh pr create --repo ostrium-labs/loams-postgres --base main
 ```
 
-Commits are signed off (`git commit -s`, DCO) and carry a `Loams-Patch`
-trailer.
+Commits are signed off (`git commit -s`, DCO; `scripts/loams/check-dco.sh`)
+and carry a `Loams-Patch` trailer. Code owners are in `CODEOWNERS`; report
+vulnerabilities privately as `SECURITY.md` says, never in a public issue.
 
 ## Releases and images
 

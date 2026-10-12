@@ -1,29 +1,28 @@
-# Autoscaling
-/libs/vm_monitor/ @neondatabase/autoscaling
+# Loams Postgres code owners (design §51 §3.5, NF1 Task 5).
+#
+# §3.5 names three teams: @ostrium-labs/loams-postgres-maintainers,
+# @ostrium-labs/postgres-maintainers and @ostrium-labs/security. They do not
+# exist yet: creating them and naming their maintainers (at least two each)
+# is an owner action (Q722, Q734). Until then every section below is owned by
+# the organisation's admins. When a team exists, replace the owners of its
+# sections with it. A later matching line wins, so keep the order.
 
-# DevProd & PerfCorr
-/.github/ @neondatabase/developer-productivity @neondatabase/performance-correctness
+# Storage, compute, CI and everything else.
+# Team: @ostrium-labs/loams-postgres-maintainers
+*                   @dina-kar @Kesh3805 @ostrium-tech
 
-# Compute
-/pgxn/ @neondatabase/compute
-/vendor/ @neondatabase/compute
-/compute/ @neondatabase/compute
-/compute_tools/ @neondatabase/compute
+# Postgres: the vendored trees, the extensions and the compute image.
+# Team: @ostrium-labs/postgres-maintainers
+/vendor/            @dina-kar @Kesh3805 @ostrium-tech
+/pgxn/              @dina-kar @Kesh3805 @ostrium-tech
+/compute/           @dina-kar @Kesh3805 @ostrium-tech
 
-# Proxy
-/libs/proxy/ @neondatabase/proxy
-/proxy/ @neondatabase/proxy
-
-# Storage
-/pageserver/ @neondatabase/storage
-/safekeeper/ @neondatabase/storage
-/storage_controller @neondatabase/storage
-/storage_scrubber @neondatabase/storage
-/libs/pageserver_api/ @neondatabase/storage
-/libs/remote_storage/ @neondatabase/storage
-/libs/safekeeper_api/ @neondatabase/storage
-
-# Shared
-/pgxn/neon/ @neondatabase/compute @neondatabase/storage
-/libs/compute_api/ @neondatabase/compute @neondatabase/control-plane
-/libs/postgres_ffi/ @neondatabase/compute @neondatabase/storage
+# Security: dependency policy, CI, the patch inventory, notices and these
+# rules themselves.
+# Team: @ostrium-labs/security
+/deny.toml          @dina-kar @Kesh3805 @ostrium-tech
+/.github/           @dina-kar @Kesh3805 @ostrium-tech
+/LOAMS_PATCHES.md   @dina-kar @Kesh3805 @ostrium-tech
+/NOTICE             @dina-kar @Kesh3805 @ostrium-tech
+/CODEOWNERS         @dina-kar @Kesh3805 @ostrium-tech
+/SECURITY.md        @dina-kar @Kesh3805 @ostrium-tech
