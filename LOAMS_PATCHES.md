@@ -32,6 +32,7 @@ Columns:
 |---|---|---|---|---|---|---|
 | LP-0000 | Fork governance: charter, patch queue and its check | ci | @dina-kar | 2026-10-11 | loams-only | never |
 | LP-0001 | Decoder trim: `pageserver_api` and `postgres_ffi` let API-only consumers leave out the storage clients and pprof | build | @dina-kar | 2026-10-08 | upstreamable | never (Loams' WAL decoder builds on it) |
+| LP-0032 | Least privilege for spec roles: a role gets what the spec asks for; `privileged` opts into Neon's admin attributes and `neon_superuser` | compute | @dina-kar | 2026-10-12 | loams-only | never (Loams' role model, PG2 R11.9) |
 
 ## Commits without a trailer
 

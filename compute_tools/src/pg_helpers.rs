@@ -278,6 +278,8 @@ pub async fn get_existing_roles_async(client: &tokio_postgres::Client) -> Result
             name: row.get("rolname"),
             encrypted_password: row.get("rolpassword"),
             options: None,
+            // Only the name and the password are compared; the spec's flag is not read back.
+            privileged: false,
         })
         .collect()
         .await;

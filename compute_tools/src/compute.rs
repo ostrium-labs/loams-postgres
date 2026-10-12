@@ -458,6 +458,7 @@ pub(crate) fn create_databricks_roles() -> Vec<String> {
                 value: None,
                 vartype: "string".to_string(),
             }]),
+            privileged: false,
         },
         // Role for brickstore control plane
         Role {
@@ -469,6 +470,7 @@ pub(crate) fn create_databricks_roles() -> Vec<String> {
                 value: None,
                 vartype: "string".to_string(),
             }]),
+            privileged: false,
         },
         // Role for brickstore httpgateway.
         Role {
@@ -476,6 +478,7 @@ pub(crate) fn create_databricks_roles() -> Vec<String> {
             // Certificate user does not need password.
             encrypted_password: None,
             options: None,
+            privileged: false,
         },
     ];
 

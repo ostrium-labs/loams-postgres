@@ -489,6 +489,13 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/GenericOption"
+        privileged:
+          type: boolean
+          default: false
+          description: |
+            Loams (LP-0032): create the role with Neon's admin attributes
+            (CREATEROLE, CREATEDB, BYPASSRLS, REPLICATION) and membership in
+            the privileged role. Omitted when false.
 
     GenericOption:
       type: object
