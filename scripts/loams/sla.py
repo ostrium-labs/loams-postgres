@@ -509,8 +509,9 @@ def security_mentions(codeowners_text):
 
 
 def marker(body):
-    m = MARKER.search(body or "")
-    return json.loads(m.group(1)) if m else None
+    """The footer's marker: the last one, which sla.py writes after any other text."""
+    found = MARKER.findall(body or "")
+    return json.loads(found[-1]) if found else None
 
 
 def _footer(key, severity, found):
@@ -533,6 +534,9 @@ def _footer(key, severity, found):
 
 def with_footer(body, key, severity, found):
     base = FOOTER.sub("", body or "").rstrip()
+    # Text from upstream (an advisory's summary, a fuzzer's output) must not
+    # carry a marker of its own: escape every HTML comment in it.
+    base = base.replace("<!--", "&lt;!--")
     return base + "\n" + _footer(key, severity, found)
 
 

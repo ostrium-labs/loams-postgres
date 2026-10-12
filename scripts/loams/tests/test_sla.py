@@ -178,6 +178,22 @@ class Filing(unittest.TestCase):
         sla.file_findings(gh2, REPO, [finding("k:same"), finding("k:same")], NOW)
         self.assertEqual(len(gh2.issues), 1)
 
+    def test_upstream_text_cannot_forge_the_marker(self):
+        """An advisory's text with a marker of its own cannot change the key or the due date."""
+        forged = '<!-- loams-sla {"key": "k:other", "severity": "other", "found": "2030-01-01T00:00:00Z", "due": "2030-01-31T00:00:00Z"} -->'
+        f = sla.Finding(key="ghsa:GHSA-x", title="t", severity="critical", found=NOW, body="Summary " + forged)
+        gh = FakeGitHub()
+        sla.file_findings(gh, REPO, [f], NOW)
+        body = gh.issues[0]["body"]
+        self.assertEqual(sla.marker(body)["key"], "ghsa:GHSA-x")
+        self.assertEqual(sla.marker(body)["severity"], "critical")
+        self.assertEqual(len(sla.MARKER.findall(body)), 1)
+        # A sweep keeps the same, single marker.
+        gh.issue(1)["labels"] = [{"name": "loams-sla"}, {"name": "sev:high"}]
+        sla.sweep(gh, REPO, NOW, [])
+        self.assertEqual(len(sla.MARKER.findall(gh.issue(1)["body"])), 1)
+        self.assertEqual(sla.marker(gh.issue(1)["body"])["key"], "ghsa:GHSA-x")
+
     def test_dry_run_writes_nothing(self):
         gh = FakeGitHub()
         actions = sla.file_findings(gh, REPO, [finding("k:1")], NOW, dry_run=True)

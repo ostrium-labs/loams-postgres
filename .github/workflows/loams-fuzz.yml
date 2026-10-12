@@ -25,8 +25,17 @@ on:
     paths:
       - .github/workflows/loams-fuzz.yml
       - fuzz/**
-      - proxy/src/fuzzing.rs
       - Cargo.lock
+      # The code the targets call.
+      - proxy/Cargo.toml
+      - proxy/src/fuzzing.rs
+      - proxy/src/pqproto.rs
+      - proxy/src/parse.rs
+      - proxy/src/sasl/**
+      - proxy/src/scram/**
+      - libs/pageserver_api/**
+      - libs/postgres_ffi/**
+      - libs/wal_decoder/**
 
 permissions:
   contents: read
