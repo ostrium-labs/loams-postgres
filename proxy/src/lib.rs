@@ -90,6 +90,8 @@ mod context;
 mod control_plane;
 mod error;
 mod ext;
+#[cfg(feature = "fuzzing")]
+pub mod fuzzing;
 mod http;
 mod intern;
 mod jemalloc;

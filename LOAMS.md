@@ -50,6 +50,10 @@ gh pr create --repo ostrium-labs/loams-postgres --base main
 Commits are signed off (`git commit -s`, DCO; `scripts/loams/check-dco.sh`)
 and carry a `Loams-Patch` trailer. Code owners are in `CODEOWNERS`; report
 vulnerabilities privately as `SECURITY.md` says, never in a public issue.
+Daily advisory checks (`loams-advisories.yml`) and nightly fuzzing
+(`loams-fuzz.yml`, targets in `fuzz/`) file findings in a private tracker
+with a severity and a due date from `SECURITY.md`'s response targets
+(`scripts/loams/sla.py`).
 
 ## Releases and images
 

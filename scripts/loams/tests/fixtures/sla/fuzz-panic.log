@@ -1,0 +1,12 @@
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 1234567890
+#2	INITED cov: 120 ft: 121 corp: 1/1b exec/s: 0 rss: 40Mb
+thread '<unnamed>' panicked at libs/pageserver_api/src/pagestream_api.rs:331:17:
+attempt to add with overflow
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+==4242== ERROR: libFuzzer: deadly signal
+    #0 0x55d0c1 in __sanitizer_print_stack_trace
+NOTE: libFuzzer has rudimentary signal handlers.
+SUMMARY: libFuzzer: deadly signal
+MS: 2 ChangeBit-InsertByte-; base unit: 0000000000000000000000000000000000000000
+artifact_prefix='fuzz/artifacts/page_service_request/'; Test unit written to fuzz/artifacts/page_service_request/crash-9b1f0c2d

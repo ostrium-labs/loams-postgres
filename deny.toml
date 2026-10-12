@@ -53,6 +53,8 @@ exceptions = [
     # Zlib license has some restrictions if we decide to change sth
     { allow = ["Zlib"], name = "const_format_proc_macros", version = "*" },
     { allow = ["Zlib"], name = "const_format", version = "*" },
+    # LLVM's libFuzzer, in the fuzz targets only (fuzz/, LP-0008); never in an image.
+    { allow = ["NCSA"], name = "libfuzzer-sys", version = "*" },
 ]
 
 [licenses.private]

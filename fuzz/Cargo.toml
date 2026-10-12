@@ -1,0 +1,51 @@
+# Fuzz targets for code Loams Postgres owns (LP-0008, design §51 §3.7).
+# Nobody else fuzzes this code since the hard fork (D820).
+# Run with cargo-fuzz and a nightly toolchain, as .github/workflows/loams-fuzz.yml does:
+#   cargo +nightly fuzz run <target>
+[package]
+name = "loams-fuzz"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+license.workspace = true
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+bytes.workspace = true
+libfuzzer-sys = "0.4.13"
+pageserver_api = { path = "../libs/pageserver_api", default-features = false }
+postgres_ffi.workspace = true
+proxy = { path = "../proxy", features = ["fuzzing"] }
+utils.workspace = true
+wal_decoder = { path = "../libs/wal_decoder" }
+workspace_hack = { version = "0.1", path = "../workspace_hack" }
+
+[[bin]]
+name = "wal_decoder_record"
+path = "fuzz_targets/wal_decoder_record.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "page_service_request"
+path = "fuzz_targets/page_service_request.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "proxy_startup"
+path = "fuzz_targets/proxy_startup.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "proxy_scram"
+path = "fuzz_targets/proxy_scram.rs"
+test = false
+doc = false
+bench = false
