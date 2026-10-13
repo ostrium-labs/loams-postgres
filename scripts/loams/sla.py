@@ -785,8 +785,9 @@ def main(argv=None):
         # A private finding is undisclosed, and this output is the run log of a
         # public repository: its key names the crash site, and even "opened" or
         # an issue number says that something was found. Print nothing for it.
-        if not any(f.private for f in findings):
-            for action in actions:
+        private = {f.key for f in findings if f.private}
+        for action in actions:
+            if action[1] not in private:
                 print(*(a for a in action if a is not None))
     except Refused as e:
         print(f"sla: refused: {e}", file=sys.stderr)
