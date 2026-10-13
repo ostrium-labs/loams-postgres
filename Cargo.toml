@@ -101,7 +101,7 @@ enum-map = "2.4.2"
 enumset = "1.0.12"
 fail = "0.5.0"
 fallible-iterator = "0.2"
-framed-websockets = { version = "0.1.0", git = "https://github.com/neondatabase/framed-websockets" }
+framed-websockets = { version = "0.1.0", git = "https://github.com/ostrium-labs/framed-websockets", rev = "34eff3d6f8cfccbc5f35e4f65314ff7328621127" }
 futures = "0.3"
 futures-core = "0.3"
 futures-util = "0.3"
@@ -202,7 +202,7 @@ thiserror = "1.0"
 tikv-jemallocator = { version = "0.6", features = ["profiling", "stats", "unprefixed_malloc_on_supported_platforms"] }
 tikv-jemalloc-ctl = { version = "0.6", features = ["stats"] }
 tokio = { version = "1.43.1", features = ["macros"] }
-tokio-epoll-uring = { git = "https://github.com/neondatabase/tokio-epoll-uring.git" , branch = "main" }
+tokio-epoll-uring = { git = "https://github.com/ostrium-labs/tokio-epoll-uring.git", rev = "781989bb540a1408b0b93daa1e9d1fa452195497" }
 tokio-io-timeout = "1.2.0"
 tokio-postgres-rustls = "0.12.0"
 tokio-rustls = { version = "0.26.0", default-features = false, features = ["tls12", "ring"]}
@@ -243,17 +243,18 @@ zeroize = "1.8"
 env_logger = "0.11"
 log = "0.4"
 
-## Libraries from neondatabase/ git forks, ideally with changes to be upstreamed
-postgres = { git = "https://github.com/neondatabase/rust-postgres.git", branch = "neon" }
-postgres-protocol = { git = "https://github.com/neondatabase/rust-postgres.git", branch = "neon" }
-postgres-types = { git = "https://github.com/neondatabase/rust-postgres.git", branch = "neon" }
-tokio-postgres = { git = "https://github.com/neondatabase/rust-postgres.git", branch = "neon" }
+## Libraries from our forks of Neon's forks (ostrium-labs), pinned by rev; each rev carries a
+## loams-<date>-<n> tag in its fork (LP-0005). framed-websockets and tokio-epoll-uring above too.
+postgres = { git = "https://github.com/ostrium-labs/rust-postgres.git", rev = "f3cf448febde5fd298071d54d568a9c875a7a62b" }
+postgres-protocol = { git = "https://github.com/ostrium-labs/rust-postgres.git", rev = "f3cf448febde5fd298071d54d568a9c875a7a62b" }
+postgres-types = { git = "https://github.com/ostrium-labs/rust-postgres.git", rev = "f3cf448febde5fd298071d54d568a9c875a7a62b" }
+tokio-postgres = { git = "https://github.com/ostrium-labs/rust-postgres.git", rev = "f3cf448febde5fd298071d54d568a9c875a7a62b" }
 
 ## Azure SDK crates
-azure_core = { git = "https://github.com/neondatabase/azure-sdk-for-rust.git", branch = "neon", default-features = false, features = ["enable_reqwest_rustls", "hmac_rust"] }
-azure_identity = { git = "https://github.com/neondatabase/azure-sdk-for-rust.git", branch = "neon", default-features = false, features = ["enable_reqwest_rustls"] }
-azure_storage = { git = "https://github.com/neondatabase/azure-sdk-for-rust.git", branch = "neon", default-features = false, features = ["enable_reqwest_rustls"] }
-azure_storage_blobs = { git = "https://github.com/neondatabase/azure-sdk-for-rust.git", branch = "neon", default-features = false, features = ["enable_reqwest_rustls"] }
+azure_core = { git = "https://github.com/ostrium-labs/azure-sdk-for-rust.git", rev = "f64bd57262ced51afce5d8909c06dcb11a6dd85a", default-features = false, features = ["enable_reqwest_rustls", "hmac_rust"] }
+azure_identity = { git = "https://github.com/ostrium-labs/azure-sdk-for-rust.git", rev = "f64bd57262ced51afce5d8909c06dcb11a6dd85a", default-features = false, features = ["enable_reqwest_rustls"] }
+azure_storage = { git = "https://github.com/ostrium-labs/azure-sdk-for-rust.git", rev = "f64bd57262ced51afce5d8909c06dcb11a6dd85a", default-features = false, features = ["enable_reqwest_rustls"] }
+azure_storage_blobs = { git = "https://github.com/ostrium-labs/azure-sdk-for-rust.git", rev = "f64bd57262ced51afce5d8909c06dcb11a6dd85a", default-features = false, features = ["enable_reqwest_rustls"] }
 
 ## Local libraries
 compute_api = { version = "0.1", path = "./libs/compute_api/" }
@@ -303,7 +304,7 @@ tonic-build = "0.13.1"
 [patch.crates-io]
 
 # Needed to get `tokio-postgres-rustls` to depend on our fork.
-tokio-postgres = { git = "https://github.com/neondatabase/rust-postgres.git", branch = "neon" }
+tokio-postgres = { git = "https://github.com/ostrium-labs/rust-postgres.git", rev = "f3cf448febde5fd298071d54d568a9c875a7a62b" }
 
 ################# Binary contents sections
 
