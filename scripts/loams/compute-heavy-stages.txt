@@ -1,0 +1,12 @@
+# Stages of compute/compute-node.Dockerfile that loams-build-compute.yml builds in
+# jobs of their own, with --target <stage>, before the image (LP-0011): each
+# writes its own registry cache (loams-postgres-buildcache:compute-v<N>-<arch>-<stage>),
+# and the image build reads all of them, so no job comes near the 6-hour limit.
+# One stage per line. pg_mooncake-build and pg_duckdb-build vendor DuckDB; they
+# leave this list when NF1 Task 21 stops building them (Q719).
+plv8-build
+rdkit-build
+postgis-build
+pgrouting-build
+pg_mooncake-build
+pg_duckdb-build
