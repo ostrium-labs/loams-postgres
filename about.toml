@@ -1,0 +1,41 @@
+# cargo about: the third-party licence file of our images
+# (/usr/share/doc/loams-postgres/THIRD_PARTY_LICENSES.html, LP-0010).
+# The accepted licences are deny.toml's allow list plus its per-crate
+# exceptions (Zlib, and NCSA for libfuzzer-sys, which only the fuzz crate uses).
+# No CDDL-1.0: nothing CDDL goes into what we publish (LP-0003).
+# Render: cargo about generate --locked -o THIRD_PARTY_LICENSES.html about.hbs
+# The order is the preference for a crate offered under several licences: MIT
+# first, so a dual-licensed crate is listed with its own copyright notice.
+accepted = [
+    "MIT",
+    "Apache-2.0",
+    "0BSD",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "CC0-1.0",
+    "ISC",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Zlib",
+    "NCSA",
+]
+targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"]
+ignore-dev-dependencies = true
+ignore-build-dependencies = false
+
+# tokio-epoll-uring keeps its licence texts at the root of its repository, not in
+# the crate's directory (our fork, LP-0007), so cargo about is pointed at them;
+# the checksums pin the texts of loams-20261013-2. uring-common's
+# LICENSE-tokio-uring is in its crate directory and is found as is.
+[tokio-epoll-uring.clarify]
+license = "MIT OR Apache-2.0"
+
+[[tokio-epoll-uring.clarify.git]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "0eced0c7b81bc123b29d8c616999936d8aad8a43acffcff6659d47a8f85e9e37"
+
+[[tokio-epoll-uring.clarify.git]]
+path = "LICENSE-APACHE"
+license = "Apache-2.0"
+checksum = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"

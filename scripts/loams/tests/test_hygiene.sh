@@ -7,6 +7,9 @@
 #   no_private_sources       check-no-private-sources.sh passes here, fails on neon-fork-point and on fixtures
 #   build_tools_pinned_by_digest  the storage Dockerfile builds FROM $BUILD_TOOLS, an ostrium-labs image by digest
 #                            (LP-0009); pin-build-tools.sh rewrites it and refuses anything else
+#   third_party_licences_include_tokio_epoll_uring  cargo about renders about.hbs with tokio-epoll-uring's
+#                            MIT notice and uring-common's tokio-uring notice, and nothing CDDL (LP-0007, LP-0010);
+#                            needs cargo-about 0.9.2 (CARGO_ABOUT, default `cargo-about` on PATH)
 #
 # Usage: test_hygiene.sh [test name ...]   (default: all)
 set -euo pipefail
@@ -127,7 +130,18 @@ build_tools_pinned_by_digest() {
   grep -qx "ARG BUILD_TOOLS=ghcr.io/ostrium-labs/loams-postgres-build-tools@$d1" "$fx/Dockerfile" || fail "a refused pin changed the file"
 }
 
-all=(upstream_ci_absent deny_rejects_cddl no_inferno no_private_sources build_tools_pinned_by_digest)
+third_party_licences_include_tokio_epoll_uring() {
+  local out="$scratch/THIRD_PARTY_LICENSES.html"
+  (cd "$repo" && "${CARGO_ABOUT:-cargo-about}" generate --locked -o "$out" about.hbs) > "$scratch/about.log" 2>&1 ||
+    { fail "cargo about failed: $(tail -5 "$scratch/about.log")"; return; }
+  grep -qF 'Copyright (c) 2023-2026 the tokio-epoll-uring authors (Neon Inc.)' "$out" ||
+    fail "no MIT notice of tokio-epoll-uring"
+  grep -qF 'Copyright (c) 2021 Carl Lerche' "$out" || fail "no tokio-uring notice (uring-common)"
+  ! grep -qiE 'CDDL|>inferno ' "$out" || fail "CDDL or inferno in the licence file"
+}
+
+all=(upstream_ci_absent deny_rejects_cddl no_inferno no_private_sources build_tools_pinned_by_digest
+  third_party_licences_include_tokio_epoll_uring)
 for current in "${@:-${all[@]}}"; do
   echo "--- $current"
   "$current"

@@ -1,0 +1,83 @@
+# The smoke stack of the image workflows (LP-0010, NF1 Tasks 10 and 11): Loams'
+# deploy/loams-postgres-dev (ostrium-labs/loams) without published ports, with
+# the images to test as STORAGE_IMAGE and COMPUTE_IMAGE. That stack is derived
+# from Neon's docker-compose/ (Apache-2.0): RustFS for S3, one safekeeper, and a
+# compute that attaches to a tenant and timeline created through the pageserver
+# API. scripts/loams/smoke/run.sh drives it. Not a production layout.
+x-storage-image: &storage-image ${STORAGE_IMAGE:?set STORAGE_IMAGE}
+x-compute-image: &compute-image ${COMPUTE_IMAGE:?set COMPUTE_IMAGE}
+x-s3-env: &s3-env
+  AWS_ACCESS_KEY_ID: rustfsadmin
+  AWS_SECRET_ACCESS_KEY: rustfsadmin
+  AWS_REGION: us-east-1
+
+services:
+  rustfs:
+    # 1.0.0, by index digest.
+    image: docker.io/rustfs/rustfs:1.0.0@sha256:8cc9801755448b71a786705ce76692c77e14936cccd87cf2fc31842e58f4d1ff
+    environment:
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: 0.0.0.0:9000
+      RUSTFS_CONSOLE_ENABLE: "false"
+      RUSTFS_ACCESS_KEY: rustfsadmin
+      RUSTFS_SECRET_KEY: rustfsadmin
+
+  # Creates the `neon` bucket with a SigV4-signed PUT. RustFS requires x-amz-content-sha256,
+  # which curl 7.88's --aws-sigv4 does not add, so it is set to the empty-body hash.
+  create-bucket:
+    image: *storage-image
+    depends_on: [rustfs]
+    restart: "no"
+    environment: *s3-env
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        until curl -sf -o /dev/null -H "x-amz-content-sha256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        --aws-sigv4 aws:amz:us-east-1:s3 --user "$${AWS_ACCESS_KEY_ID}:$${AWS_SECRET_ACCESS_KEY}"
+        -X PUT http://rustfs:9000/neon
+        || curl -sf -o /dev/null -H "x-amz-content-sha256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        --aws-sigv4 aws:amz:us-east-1:s3 --user "$${AWS_ACCESS_KEY_ID}:$${AWS_SECRET_ACCESS_KEY}"
+        -I http://rustfs:9000/neon;
+        do echo waiting for rustfs; sleep 1; done; echo bucket ready
+
+  storage_broker:
+    image: *storage-image
+    command: ["storage_broker", "--listen-addr=0.0.0.0:50051"]
+
+  pageserver:
+    image: *storage-image
+    environment: *s3-env
+    volumes:
+      - ./pageserver.toml:/data/.neon/pageserver.toml:ro
+      - ./identity.toml:/data/.neon/identity.toml:ro
+    depends_on:
+      storage_broker:
+        condition: service_started
+      create-bucket:
+        condition: service_completed_successfully
+
+  safekeeper1:
+    image: *storage-image
+    environment: *s3-env
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        safekeeper --listen-pg=safekeeper1:5454 --listen-http=0.0.0.0:7676 --id=1
+        --broker-endpoint=http://storage_broker:50051 -D /data
+        --remote-storage="{endpoint='http://rustfs:9000', bucket_name='neon', bucket_region='us-east-1', prefix_in_bucket='/safekeeper/'}"
+    depends_on:
+      storage_broker:
+        condition: service_started
+      create-bucket:
+        condition: service_completed_successfully
+
+  compute1:
+    image: *compute-image
+    environment:
+      TENANT_ID: ${TENANT_ID:-}
+      TIMELINE_ID: ${TIMELINE_ID:-}
+    volumes:
+      - ./compute/config.json:/var/db/postgres/configs/config.json:ro
+      - ./compute/start.sh:/shell/start.sh:ro
+    entrypoint: ["/bin/bash", "/shell/start.sh"]
+    depends_on: [pageserver, safekeeper1]
