@@ -2,9 +2,12 @@
 ### The image itself is mainly used as a container for the binaries and for starting e2e tests with custom parameters.
 ### By default, the binaries inside the image have some mock parameters and can start, but are not intended to be used
 ### inside this image in the real deployments.
-ARG REPOSITORY=ghcr.io/ostrium-labs
-ARG IMAGE=build-tools
-ARG TAG=pinned
+# The build-tools image (build-tools/Dockerfile), by digest (LP-0009). The
+# loams-build-tools workflow builds it and opens the pull request that moves
+# this line (scripts/loams/pin-build-tools.sh). Until its first build, this is
+# Neon's last public build-tools (the 77e22e4b build's, d4a4001a-bookworm),
+# mirrored byte for byte to ostrium-labs/neon-archive (NF1 Task 1; audit clean).
+ARG BUILD_TOOLS=ghcr.io/ostrium-labs/neon-archive/build-tools@sha256:bd1fe230b33aab4d7c2b336311aa8f96733a32a4eed4d61eecfb1c6b6d8cf6e3
 ARG DEBIAN_VERSION=bookworm
 ARG DEBIAN_FLAVOR=${DEBIAN_VERSION}-slim
 
@@ -42,7 +45,7 @@ ARG BASE_IMAGE_SHA=${BASE_IMAGE_SHA/debian:bullseye-slim/debian@$BULLSEYE_SLIM_S
 # - Use cargo chef to build all rust dependencies
 
 # 1. Build all postgres versions
-FROM $REPOSITORY/$IMAGE:$TAG AS pg-build
+FROM $BUILD_TOOLS AS pg-build
 WORKDIR /home/nonroot
 
 COPY --chown=nonroot vendor/postgres-v14 vendor/postgres-v14
@@ -58,7 +61,7 @@ RUN set -e \
     && mold -run make -j $(nproc) -s postgres
 
 # 2. Prepare cargo-chef recipe
-FROM $REPOSITORY/$IMAGE:$TAG AS plan
+FROM $BUILD_TOOLS AS plan
 WORKDIR /home/nonroot
 
 COPY --chown=nonroot . .
@@ -68,7 +71,7 @@ COPY --chown=nonroot . .
 RUN cargo chef prepare --recipe-path recipe.json
 
 # Main build image
-FROM $REPOSITORY/$IMAGE:$TAG AS build
+FROM $BUILD_TOOLS AS build
 WORKDIR /home/nonroot
 ARG GIT_VERSION=local
 ARG BUILD_TAG
