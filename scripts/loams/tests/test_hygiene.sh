@@ -91,7 +91,8 @@ no_private_sources() {
   "$scripts/check-no-private-sources.sh" "$fx" > /dev/null || fail "a comment was refused"
   for line in 'ARG REPOSITORY=ghcr.io/neondatabase' \
               'RUN wget https://github.com/neondatabase-labs/pgrag/archive/v1.tar.gz' \
-              'ENV RUSTC_WRAPPER_CACHE=https://cache.neon.build/x'; do
+              'ENV RUSTC_WRAPPER_CACHE=https://cache.neon.build/x' \
+              'RUN git clone https://github.com/NeonDatabase/pgrag'; do
     printf 'FROM debian\n%s\n' "$line" > "$fx/docker/Dockerfile.ext"
     "$scripts/check-no-private-sources.sh" "$fx" > /dev/null 2>&1 && fail "accepted: $line"
   done

@@ -8,7 +8,8 @@
 # Files checked: Cargo.lock, every Cargo.toml, .gitmodules, every Dockerfile
 # (`Dockerfile`, `*.Dockerfile`, `Dockerfile.*`) and every workflow in
 # .github/workflows. vendor/ (the Postgres submodules) is not checked.
-# A line whose first non-blank character is `#` is a comment and is allowed.
+# Matching ignores case. A line whose first non-blank character is `#` is a
+# comment and is allowed.
 # A file listed in scripts/loams/private-sources-allowlist.txt is skipped.
 #
 # Usage: check-no-private-sources.sh [root]   (default: the current repository)
@@ -30,8 +31,8 @@ while IFS= read -r -d '' file; do
   if [[ -n $allowed ]] && grep -Fxq -- "$rel" <<<"$allowed"; then
     continue
   fi
-  # -n: line numbers; drop full-line comments, keep the rest.
-  hits=$(grep -nE -- "$pattern" "$file" | grep -vE '^[0-9]+:[[:space:]]*#' || true)
+  # -n: line numbers; -i: any case. Full-line comments are dropped.
+  hits=$(grep -niE -- "$pattern" "$file" | grep -vE '^[0-9]+:[[:space:]]*#' || true)
   if [[ -n $hits ]]; then
     sed "s|^|$rel:|" <<<"$hits"
     found=$((found + 1))
