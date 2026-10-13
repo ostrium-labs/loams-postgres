@@ -83,7 +83,10 @@ class Tag(unittest.TestCase):
         rn.check_tag("lp-2026.10.0", ["lp-2026.09.3", "loams-20261013-1"])
         with self.assertRaises(rn.Refused):
             rn.check_tag("lp-2026.10.0", ["lp-2026.10.0"])
-        for bad in ("lp-2026.10", "v2026.10.0", "lp-2026.1.0", "lp-2026.10.0-rc1", "lp-26.10.0"):
+        rn.check_tag("lp-2026.01.0", [])
+        rn.check_tag("lp-2026.12.3", [])
+        for bad in ("lp-2026.10", "v2026.10.0", "lp-2026.1.0", "lp-2026.10.0-rc1", "lp-26.10.0",
+                    "lp-2026.00.0", "lp-2026.13.0"):
             with self.assertRaises(rn.Refused):
                 rn.check_tag(bad, [])
 
@@ -134,6 +137,10 @@ class PinDocument(unittest.TestCase):
     def test_partial_release_with_a_new_minor_is_refused(self):
         with self.assertRaises(rn.Refused):
             self.doc("compute", revisions={**REVISIONS, "v17": ["17.6", "abc"]})
+
+    def test_a_compute_digest_for_an_unpinned_major_is_refused(self):
+        with self.assertRaises(rn.Refused):
+            self.doc(compute={"16": D["16"], "17": D["17"], "18": D["17"]})
 
     def test_a_major_without_its_compute_digest_is_refused(self):
         with self.assertRaises(rn.Refused):

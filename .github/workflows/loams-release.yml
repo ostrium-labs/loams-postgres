@@ -9,8 +9,11 @@
 #      Task 16 brings loams-gate.yml with G1 to G3);
 #   3. build the images for this commit (loams-build-storage.yml,
 #      loams-build-compute.yml, which reuse their registry caches);
-#   4. tag them with the release: storage lp-YYYY.MM.N, compute
-#      <pgminor>-lp-YYYY.MM.N (a beta major <pgminor>-beta-lp-YYYY.MM.N);
+#   4. write the pin document and the notes (a refused document stops the
+#      release before anything is written to the registry), then tag the
+#      images with the release: storage lp-YYYY.MM.N, compute
+#      <pgminor>-lp-YYYY.MM.N (a beta major <pgminor>-beta-lp-YYYY.MM.N),
+#      refusing an image release tag that exists;
 #   5. sign, attest and attach sources (loams-sign.yml), per image;
 #   6. the git tag and a GitHub Release, whose notes list the digests, the
 #      Postgres minors, the extension versions and the patches added or dropped
@@ -127,15 +130,17 @@ jobs:
       contents: read
       packages: write
     outputs:
-      storage: ${{ steps.tag.outputs.storage }}
-      compute: ${{ steps.tag.outputs.compute }}
-      sign: ${{ steps.tag.outputs.sign }}
+      sign: ${{ steps.resolve.outputs.sign }}
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
+      PREVIOUS: ${{ needs.prepare.outputs.previous }}
       KIND: ${{ inputs.kind }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
+          fetch-depth: 0
+          fetch-tags: true
           persist-credentials: false
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
@@ -143,21 +148,24 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Resolve this commit's digests and tag them with the release
-        id: tag
-        env:
-          GH_TOKEN: ${{ github.token }}
+      # Nothing is written to the registry until the release documents are
+      # valid: a refused pin document must not leave an lp- image tag behind.
+      - name: Resolve this commit's digests (no writes)
+        id: resolve
         run: |
           set -euo pipefail
           digest() { docker buildx imagetools inspect "$1" --format '{{json .Manifest}}' | jq -r .digest; }
+          free() {
+            # An image release tag is never moved or reused either.
+            if docker buildx imagetools inspect "$1" > /dev/null 2>&1; then echo "$1 exists"; exit 1; fi
+          }
           sha12=${GITHUB_SHA:0:12}
-          sign='[]'
-          storage=""
-          compute='{}'
+          sign='[]' storage="" compute='{}' tags='[]'
           if [ "$KIND" != compute ]; then
             image=ghcr.io/ostrium-labs/loams-postgres-storage
             storage=$(digest "$image:$sha12")
-            docker buildx imagetools create -t "$image:$VERSION" "$image@$storage"
+            free "$image:$VERSION"
+            tags=$(jq -c --arg t "$image:$VERSION" --arg r "$image@$storage" '. + [[$t, $r]]' <<<"$tags")
             sign=$(jq -c --arg i "$image" --arg d "$storage" '. + [{image: $i, digest: $d, sources: false, pg_version: "", debian: ""}]' <<<"$sign")
           fi
           if [ "$KIND" != storage ]; then
@@ -171,7 +179,8 @@ jobs:
               beta=$(jq -r 'if .beta then "-beta" else "" end' <<<"$m")
               image=ghcr.io/ostrium-labs/loams-postgres-compute-$pgv
               d=$(digest "$image:$built")
-              docker buildx imagetools create -t "$image:$minor$beta-$VERSION" "$image@$d"
+              free "$image:$minor$beta-$VERSION"
+              tags=$(jq -c --arg t "$image:$minor$beta-$VERSION" --arg r "$image@$d" '. + [[$t, $r]]' <<<"$tags")
               compute=$(jq -c --arg k "$pg" --arg d "$d" '. + {($k): $d}' <<<"$compute")
               sign=$(jq -c --arg i "$image" --arg d "$d" --arg p "$pgv" --arg b "$debian" \
                 '. + [{image: $i, digest: $d, sources: true, pg_version: $p, debian: $b}]' <<<"$sign")
@@ -180,7 +189,42 @@ jobs:
           for x in "$storage" $(jq -r '.[]' <<<"$compute"); do
             [[ -z $x || $x =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "bad digest $x"; exit 1; }
           done
+          echo "$tags" > "$RUNNER_TEMP/tags.json"
           { echo "storage=$storage"; echo "compute=$compute"; echo "sign=$sign"; } | tee -a "$GITHUB_OUTPUT"
+      - name: The pin document and the notes (refused documents stop the release here)
+        env:
+          STORAGE: ${{ steps.resolve.outputs.storage }}
+          COMPUTE: ${{ steps.resolve.outputs.compute }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/release"
+          gh api repos/ostrium-labs/loams/contents/deploy/pins/loams-postgres-images.toml \
+            -H 'Accept: application/vnd.github.raw' > "$RUNNER_TEMP/loams-pins.toml"
+          args=()
+          [ -n "$STORAGE" ] && args+=(--storage "$STORAGE")
+          while read -r kv; do [ -n "$kv" ] && args+=(--compute "$kv"); done < <(jq -r 'to_entries[] | "\(.key)=\(.value)"' <<<"$COMPUTE")
+          python3 -I scripts/loams/release-notes.py pin-doc --version "$VERSION" --commit "$GITHUB_SHA" \
+            --loams-pins "$RUNNER_TEMP/loams-pins.toml" "${args[@]}" > "$RUNNER_TEMP/release/loams-postgres-images.toml"
+          prev=()
+          if [ -n "$PREVIOUS" ]; then
+            git show "$PREVIOUS:LOAMS_PATCHES.md" > "$RUNNER_TEMP/patches-prev.md"
+            prev=(--previous "$PREVIOUS" --patches-prev "$RUNNER_TEMP/patches-prev.md")
+          fi
+          python3 -I scripts/loams/release-notes.py notes --version "$VERSION" --commit "$GITHUB_SHA" \
+            --pin-doc "$RUNNER_TEMP/release/loams-postgres-images.toml" --patches-now LOAMS_PATCHES.md \
+            --extensions compute/loams-extensions.toml "${prev[@]}" > "$RUNNER_TEMP/release/notes.md"
+          cat "$RUNNER_TEMP/release/notes.md" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-${{ needs.prepare.outputs.version }}
+          path: ${{ runner.temp }}/release/
+          retention-days: 30
+      - name: Tag the images with the release
+        run: |
+          set -euo pipefail
+          while read -r pair; do
+            docker buildx imagetools create -t "$(jq -r '.[0]' <<<"$pair")" "$(jq -r '.[1]' <<<"$pair")"
+          done < <(jq -c '.[]' "$RUNNER_TEMP/tags.json")
 
   sign:
     needs: tag-images
@@ -211,36 +255,11 @@ jobs:
       contents: write
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
-      PREVIOUS: ${{ needs.prepare.outputs.previous }}
-      STORAGE: ${{ needs.tag-images.outputs.storage }}
-      COMPUTE: ${{ needs.tag-images.outputs.compute }}
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          fetch-depth: 0
-          fetch-tags: true
-          persist-credentials: false
-      - name: The pin document and the notes
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          gh api repos/ostrium-labs/loams/contents/deploy/pins/loams-postgres-images.toml \
-            -H 'Accept: application/vnd.github.raw' > "$RUNNER_TEMP/loams-pins.toml"
-          args=()
-          [ -n "$STORAGE" ] && args+=(--storage "$STORAGE")
-          while read -r kv; do [ -n "$kv" ] && args+=(--compute "$kv"); done < <(jq -r 'to_entries[] | "\(.key)=\(.value)"' <<<"$COMPUTE")
-          python3 -I scripts/loams/release-notes.py pin-doc --version "$VERSION" --commit "$GITHUB_SHA" \
-            --loams-pins "$RUNNER_TEMP/loams-pins.toml" "${args[@]}" > "$RUNNER_TEMP/loams-postgres-images.toml"
-          prev=()
-          if [ -n "$PREVIOUS" ]; then
-            git show "$PREVIOUS:LOAMS_PATCHES.md" > "$RUNNER_TEMP/patches-prev.md"
-            prev=(--previous "$PREVIOUS" --patches-prev "$RUNNER_TEMP/patches-prev.md")
-          fi
-          python3 -I scripts/loams/release-notes.py notes --version "$VERSION" --commit "$GITHUB_SHA" \
-            --pin-doc "$RUNNER_TEMP/loams-postgres-images.toml" --patches-now LOAMS_PATCHES.md \
-            --extensions compute/loams-extensions.toml "${prev[@]}" > "$RUNNER_TEMP/notes.md"
-          cat "$RUNNER_TEMP/notes.md" >> "$GITHUB_STEP_SUMMARY"
+          name: release-${{ needs.prepare.outputs.version }}
+          path: ${{ runner.temp }}/release
       - name: The tag and the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -250,14 +269,7 @@ jobs:
             -f message="Loams Postgres $VERSION" -q .sha > "$RUNNER_TEMP/tag"
           gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$VERSION" -f sha="$(cat "$RUNNER_TEMP/tag")" > /dev/null
           gh release create "$VERSION" --repo "$GITHUB_REPOSITORY" --verify-tag --title "Loams Postgres $VERSION" \
-            --notes-file "$RUNNER_TEMP/notes.md" "$RUNNER_TEMP/loams-postgres-images.toml"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: release-${{ needs.prepare.outputs.version }}
-          path: |
-            ${{ runner.temp }}/loams-postgres-images.toml
-            ${{ runner.temp }}/notes.md
-          retention-days: 30
+            --notes-file "$RUNNER_TEMP/release/notes.md" "$RUNNER_TEMP/release/loams-postgres-images.toml"
 
   pin-pr:
     needs: [prepare, release]

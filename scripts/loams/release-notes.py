@@ -37,7 +37,7 @@ import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-VERSION = re.compile(r"lp-(\d{4})\.(\d{2})\.(\d+)")
+VERSION = re.compile(r"lp-(\d{4})\.(0[1-9]|1[0-2])\.(\d+)")
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 COMMIT = re.compile(r"[0-9a-f]{40}")
 REPO = "ghcr.io/ostrium-labs/loams-postgres-"
@@ -121,6 +121,9 @@ def pin_document(version, commit, loams_pins, revisions, storage, compute):
         images["storage"] = {"repository": REPO + "storage", "digest": storage, "source": source,
                              "pg_minors": {str(n): minor(n) for n in listed}}
     if compute:
+        extra = sorted(set(compute) - {str(n) for n in listed})
+        if extra:
+            raise Refused(f"compute digests for Postgres {extra}, which Loams does not pin")
         missing = [n for n in listed if str(n) not in compute]
         if missing:
             raise Refused(f"no compute digest for Postgres {missing}; a compute release builds every pinned major")
