@@ -33,7 +33,7 @@ pub static malloc_conf: &[u8] = b"prof:true,prof_active:true,lg_prof_sample:21\0
 // Register benchmarks with Criterion.
 criterion_group!(
     name = benches;
-    config = Criterion::default().with_profiler(PProfProfiler::new(100, Output::Flamegraph(None)));
+    config = Criterion::default().with_profiler(PProfProfiler::new(100, Output::Protobuf));
     targets = bench_process_msg,
     bench_wal_acceptor,
     bench_wal_acceptor_throughput,

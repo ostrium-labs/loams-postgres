@@ -1,5 +1,3 @@
-use std::fs::File;
-
 use clap::Parser;
 use tracing::info;
 use utils::logging;
@@ -28,8 +26,8 @@ mod cmd {
 /// Component-level performance test for pageserver.
 #[derive(clap::Parser)]
 struct Args {
-    /// Takes a client CPU profile into profile.svg. The benchmark must exit cleanly before it's
-    /// written, e.g. via --runtime.
+    /// Takes a client CPU profile into profile.pb (pprof format). The benchmark must exit cleanly
+    /// before it's written, e.g. via --runtime.
     #[arg(long)]
     profile: bool,
 
@@ -79,13 +77,17 @@ fn main() -> anyhow::Result<()> {
         Subcommand::IdleStreams(args) => cmd::idle_streams::main(args),
     }?;
 
-    // Generate a CPU flamegraph if requested.
+    // Write the CPU profile if requested. pprof is built without its flamegraph renderer
+    // (inferno is CDDL-1.0, LP-0003); render the profile with `go tool pprof` instead.
     if let Some(profiler) = profiler {
         let report = profiler.report().build()?;
         drop(profiler); // stop profiling
-        let file = File::create("profile.svg")?;
-        report.flamegraph(file)?;
-        info!("wrote CPU profile flamegraph to profile.svg")
+        let profile = report.pprof()?;
+        std::fs::write(
+            "profile.pb",
+            pprof::protos::Message::encode_to_vec(&profile),
+        )?;
+        info!("wrote CPU profile to profile.pb")
     }
 
     Ok(())

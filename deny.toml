@@ -36,13 +36,15 @@ reason = "The paste crate is a build-only dependency with no runtime components.
 # https://embarkstudios.github.io/cargo-deny/checks/licenses/cfg.html
 [licenses]
 version = 2
+# No CDDL-1.0: nothing CDDL goes into a binary or image Loams Postgres publishes
+# (owner ruling 2026-10-08, LP-0003). pprof and jemalloc_pprof are built without
+# their flamegraph renderer (inferno) for that reason.
 allow = [
     "0BSD",
     "Apache-2.0",
     "BSD-2-Clause",
     "BSD-3-Clause",
     "CC0-1.0",
-    "CDDL-1.0",
     "ISC",
     "MIT",
     "MPL-2.0",

@@ -2,6 +2,8 @@
 # Tests for NF1 Task 7, the build hygiene patches (LP-0002 to LP-0006).
 #
 #   upstream_ci_absent       no workflow without the loams- prefix; strip-upstream-ci.sh is idempotent
+#   deny_rejects_cddl        `cargo deny check licenses` passes here and fails on a CDDL-1.0 fixture crate
+#   no_inferno               `cargo tree -e features -i inferno` finds nothing, on any target
 #
 # Usage: test_hygiene.sh [test name ...]   (default: all)
 set -euo pipefail
@@ -28,7 +30,38 @@ upstream_ci_absent() {
   "$scripts/strip-upstream-ci.sh" "$fx" | grep -q 'removed 0 workflow' || fail "second run removed something"
 }
 
-all=(upstream_ci_absent)
+deny_rejects_cddl() {
+  (cd "$repo" && cargo deny --log-level error check licenses) || fail "cargo deny check licenses failed"
+
+  # A scratch workspace with this repository's deny.toml and one CDDL crate.
+  local fx="$scratch/cddl"
+  mkdir -p "$fx/src"
+  cp "$repo/deny.toml" "$fx/deny.toml"
+  : > "$fx/src/lib.rs"
+  cat > "$fx/Cargo.toml" <<'TOML'
+[package]
+name = "cddl-fixture"
+version = "0.1.0"
+edition = "2021"
+license = "CDDL-1.0"
+TOML
+  if (cd "$fx" && cargo deny --log-level error check licenses) > "$fx/out" 2>&1; then
+    fail "cargo deny accepted a CDDL-1.0 crate"
+  elif ! grep -q 'CDDL-1.0' "$fx/out"; then
+    fail "cargo deny failed, but not on CDDL-1.0: $(cat "$fx/out")"
+  fi
+}
+
+no_inferno() {
+  local out
+  if out=$(cd "$repo" && cargo tree --locked --target all -e features -i inferno 2>&1); then
+    fail "inferno is in the graph: $out"
+  elif ! grep -q 'did not match any packages' <<<"$out"; then
+    fail "cargo tree failed: $out"
+  fi
+}
+
+all=(upstream_ci_absent deny_rejects_cddl no_inferno)
 for current in "${@:-${all[@]}}"; do
   echo "--- $current"
   "$current"
