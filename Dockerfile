@@ -111,8 +111,37 @@ RUN set -e \
       --locked --release \
     && mold -run make -j $(nproc) -s neon-pg-ext
 
+# The third-party licence file of the Rust crates (cargo-about 0.9.2, checked by
+# sha256; about.toml, about.hbs; LP-0010). The crate sources are already in
+# CARGO_HOME from the build above.
+ARG CARGO_ABOUT_VERSION=0.9.2
+RUN set -e \
+    && arch=$(uname -m) \
+    && case "$arch" in \
+        x86_64) sha=9099a59e820c38a68b9d65f300662a567d56562f9a10f6aa4c7e86c17c2566af ;; \
+        aarch64) sha=af5169282fb6f84e13471493f405437e43ac517744c9ae12fbe2cdf0a6f0e5a8 ;; \
+        *) echo "Unsupported architecture: $arch" && exit 1 ;; \
+    esac \
+    && mkdir -p /tmp/cargo-about \
+    && curl -fsSL -o /tmp/cargo-about.tgz \
+        "https://github.com/EmbarkStudios/cargo-about/releases/download/${CARGO_ABOUT_VERSION}/cargo-about-${CARGO_ABOUT_VERSION}-${arch}-unknown-linux-musl.tar.gz" \
+    && echo "$sha  /tmp/cargo-about.tgz" | sha256sum -c - \
+    && tar -xzf /tmp/cargo-about.tgz -C /tmp/cargo-about --strip-components=1 \
+    && /tmp/cargo-about/cargo-about generate --locked -o THIRD_PARTY_LICENSES.html about.hbs \
+    && grep -q 'the tokio-epoll-uring authors (Neon Inc.)' THIRD_PARTY_LICENSES.html \
+    && rm -rf /tmp/cargo-about /tmp/cargo-about.tgz
+
 # Assemble the final image
 FROM $BASE_IMAGE_SHA
+ARG GIT_VERSION=local
+ARG BUILD_TAG
+LABEL org.opencontainers.image.title="loams-postgres-storage" \
+      org.opencontainers.image.description="Loams Postgres storage: pageserver, safekeeper, storage broker, storage controller, proxy and Postgres for WAL redo" \
+      org.opencontainers.image.source="https://github.com/ostrium-labs/loams-postgres" \
+      org.opencontainers.image.revision="${GIT_VERSION}" \
+      org.opencontainers.image.version="${BUILD_TAG}" \
+      org.opencontainers.image.vendor="Ostrium Labs" \
+      org.opencontainers.image.licenses="Apache-2.0"
 WORKDIR /data
 
 RUN set -e \
@@ -155,6 +184,10 @@ COPY --from=build /home/nonroot/pg_install/v14 /usr/local/v14/
 COPY --from=build /home/nonroot/pg_install/v15 /usr/local/v15/
 COPY --from=build /home/nonroot/pg_install/v16 /usr/local/v16/
 COPY --from=build /home/nonroot/pg_install/v17 /usr/local/v17/
+
+# Licences and the patch list (LP-0010).
+COPY --from=build /home/nonroot/LICENSE /home/nonroot/NOTICE /home/nonroot/LOAMS_PATCHES.md \
+     /home/nonroot/THIRD_PARTY_LICENSES.html /usr/share/doc/loams-postgres/
 
 # Deprecated: Old deployment scripts use this tarball which contains all the Postgres binaries.
 # That's obsolete, since all the same files are also present under /usr/local/v*. But to keep the

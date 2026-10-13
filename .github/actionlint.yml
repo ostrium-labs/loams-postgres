@@ -3,3 +3,6 @@
 # workflow reads is listed here, with the task that uses it.
 config-variables:
   - LOAMS_SLA_REPO # loams-advisories, loams-fuzz (LP-0008): the private tracker
+  - RUNNER_HEAVY # loams-build-storage, loams-build-compute (LP-0010, LP-0011): the amd64 runner (default ubuntu-24.04; Q721)
+  - RUNNER_HEAVY_ARM # the same, arm64 (default ubuntu-24.04-arm)
+  - SMOKE_COMPUTE_IMAGE # loams-build-storage (LP-0010): the compute its smoke attaches

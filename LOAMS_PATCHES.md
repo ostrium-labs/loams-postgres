@@ -40,6 +40,7 @@ Columns:
 | LP-0007 | Licence texts for `tokio-epoll-uring`: our fork's `loams/main` adds `LICENSE-MIT`, `LICENSE-APACHE`, `uring-common/LICENSE-tokio-uring` and `LICENSING.md`, and the pin moves there; `docs/loams/LICENSING-tokio-epoll-uring.md` | licence | @dina-kar | 2026-10-13 | loams-only | upstream publishes licence files that match its manifests |
 | LP-0008 | Advisories, fuzzing and response targets: daily advisory checks, nightly fuzz targets (`fuzz/`, the proxy's `fuzzing` feature), severity labels and due dates (`scripts/loams/sla.py`) | ci | @dina-kar | 2026-10-12 | loams-only | never |
 | LP-0009 | Our build-tools image: `loams-build-tools.yml` builds `ghcr.io/ostrium-labs/loams-postgres-build-tools` (amd64, arm64) and opens the pin PR; the storage `Dockerfile` builds `FROM $BUILD_TOOLS`, pinned by digest (`scripts/loams/pin-build-tools.sh`) | build | @dina-kar | 2026-10-13 | loams-only | never |
+| LP-0010 | The storage image workflow: `loams-build-storage.yml` (amd64, arm64; `<sha12>`, `edge`), the smoke stack (`scripts/loams/smoke/`), the image audit (`scripts/loams/audit-image.sh`, vendored from Loams), labels and `/usr/share/doc/loams-postgres/` (`THIRD_PARTY_LICENSES.html` from `cargo about`) | build | @dina-kar | 2026-10-13 | loams-only | never |
 | LP-0032 | Least privilege for spec roles: a role gets what the spec asks for; `privileged` opts into Neon's admin attributes and `neon_superuser` | compute | @dina-kar | 2026-10-12 | loams-only | never (Loams' role model, PG2 R11.9) |
 
 ## Commits without a trailer
