@@ -9,10 +9,15 @@
 # A crash is an undisclosed vulnerability, and this repository's run logs are
 # public: the fuzzer's output goes to a file, never to the log, and is filed
 # with the reproducer as a private issue in the SLA tracker (scripts/loams/sla.py
-# refuses a public repository). Nothing is uploaded as an artifact.
+# refuses a public repository and prints nothing about a private finding).
+# Nothing is uploaded as an artifact. A public run does not show whether a
+# target crashed either: every step runs whatever the fuzzer found, and the job
+# fails only when filing fails.
 #
 # Needs, besides Actions being enabled on this repository: the variable
 # LOAMS_SLA_REPO and the secret LOAMS_SLA_TOKEN, as loams-advisories.yml.
+# Without the token a scheduled run fuzzes nothing (job `tracker`): a finding
+# would have nowhere private to go.
 # On a pull request the targets are only built (fuzz_targets_build).
 name: loams-fuzz
 
@@ -55,7 +60,21 @@ env:
   FUZZ_SECONDS: 1800
 
 jobs:
+  tracker:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      ready: ${{ steps.token.outputs.ready }}
+    steps:
+      - id: token
+        env:
+          TOKEN: ${{ secrets.LOAMS_SLA_TOKEN }}
+        run: |
+          if [ -n "$TOKEN" ]; then echo "ready=true"; else echo "ready=false"; fi >> "$GITHUB_OUTPUT"
+
   fuzz:
+    needs: tracker
+    if: github.event_name == 'pull_request' || needs.tracker.outputs.ready == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     strategy:
@@ -116,8 +135,11 @@ jobs:
             -max_total_time="$FUZZ_SECONDS" > "$RUNNER_TEMP/fuzz.log" 2>&1
           status=$?
           set -e
+          # libFuzzer stops at the first crash: wait out the rest of the time
+          # budget, so the step's duration does not show it either.
+          if [ "$SECONDS" -lt "$FUZZ_SECONDS" ]; then sleep $((FUZZ_SECONDS - SECONDS)); fi
+          # The status goes to the next step only, never to the log.
           echo "status=$status" >> "$GITHUB_OUTPUT"
-          echo "fuzzer exit status: $status; corpus: $(ls "fuzz/corpus/$TARGET" | wc -l) inputs"
       - name: Save the corpus
         if: always() && github.event_name != 'pull_request'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -125,10 +147,13 @@ jobs:
           path: fuzz/corpus/${{ matrix.target }}
           key: loams-fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
       - name: File crashes privately
-        if: github.event_name != 'pull_request' && steps.fuzz.outputs.status != '0'
+        # Runs on every scheduled run, so a skipped step cannot say "no crash".
+        if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ secrets.LOAMS_SLA_TOKEN }}
+          STATUS: ${{ steps.fuzz.outputs.status }}
         run: |
+          if [ "$STATUS" = 0 ]; then exit 0; fi
           shopt -s nullglob
           artifacts=("fuzz/artifacts/$TARGET"/*)
           if [ ${#artifacts[@]} -eq 0 ]; then
@@ -140,5 +165,3 @@ jobs:
             python3 -I scripts/loams/sla.py file --repo "$SLA_REPO" --kind fuzz \
               --target "$TARGET" --artifact "$artifact" --log "$RUNNER_TEMP/fuzz.log"
           done
-          echo "::error::$TARGET failed; filed privately in the SLA tracker"
-          exit 1

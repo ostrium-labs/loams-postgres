@@ -9,9 +9,11 @@ versions.rss, Trivy reports, GitHub repository advisories and libFuzzer logs.
 Run: python3 -I scripts/loams/tests/test_sla.py
 """
 
+import contextlib
 import copy
 import datetime as dt
 import importlib.util
+import io
 import json
 import subprocess
 import sys
@@ -473,6 +475,52 @@ class Fuzz(unittest.TestCase):
         again = sla.finding_from_fuzz("page_service_request", "crash-ffff", b"other", log, NOW)
         sla.file_findings(gh, REPO, [again], NOW)
         self.assertEqual(len(gh.issues), 1)
+
+    def test_fuzz_cli_keeps_the_finding_out_of_the_log(self):
+        # The run log of a public repository is public: `file --kind fuzz`
+        # prints nothing that names the target's crash site or the issue.
+        gh = FakeGitHub(private=True)
+        out, err = io.StringIO(), io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = Path(tmp) / "crash-9b1f0c2d"
+            artifact.write_bytes((FIX / "crash-input.bin").read_bytes())
+            argv = ["file", "--repo", REPO, "--kind", "fuzz", "--target", "page_service_request",
+                    "--artifact", str(artifact), "--log", str(FIX / "fuzz-panic.log"),
+                    "--now", "2026-10-12T06:00:00Z"]
+            original = sla._github
+            sla._github = lambda: gh
+            try:
+                with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                    self.assertEqual(sla.main(argv), 0)
+                    self.assertEqual(sla.main(argv), 0)  # a known finding: also silent
+            finally:
+                sla._github = original
+        self.assertEqual(len(gh.issues), 1)
+        logged = out.getvalue() + err.getvalue()
+        for secret in ("pagestream_api", "panic@", "fuzz:", "page_service_request", "#1", " 1\n"):
+            self.assertNotIn(secret, logged)
+
+    def test_public_findings_are_still_printed_beside_private_ones(self):
+        gh = FakeGitHub(private=True)
+        crash = sla.finding_from_fuzz("page_service_request", "crash-1", b"\x00",
+                                      (FIX / "fuzz-panic.log").read_text(), NOW)
+        public = sla.findings_from_json([{
+            "key": "pg-release:2026-08-13", "title": "Postgres 17.11 and 16.15: security fixes",
+            "severity": "pg-minor", "found": "2026-08-13T00:00:00Z", "body": "fixture"}])
+        self.assertTrue(public and not any(f.private for f in public))
+        original_collect, original_github = sla._collect, sla._github
+        sla._collect = lambda args, gh_, now: ([crash, *public], [])
+        sla._github = lambda: gh
+        out = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out):
+                self.assertEqual(sla.main(["file", "--repo", REPO, "--kind", "findings", "--input", "x",
+                                           "--now", "2026-10-12T06:00:00Z"]), 0)
+        finally:
+            sla._collect, sla._github = original_collect, original_github
+        self.assertNotIn("fuzz:", out.getvalue())
+        for f in public:
+            self.assertIn(f.key, out.getvalue())
 
     def test_memory_error_is_critical(self):
         log = (FIX / "fuzz-asan.log").read_text()

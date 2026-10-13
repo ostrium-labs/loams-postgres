@@ -364,18 +364,21 @@ pub async fn prometheus_metrics_handler(
     Ok(response)
 }
 
+/// The answer to `format=svg`. Loams Postgres builds pprof and jemalloc_pprof
+/// without their flamegraph renderer, `inferno`, which is CDDL-1.0 (LP-0003).
+fn svg_not_built() -> Result<Response<Body>, ApiError> {
+    crate::json::json_response(
+        hyper::StatusCode::BAD_REQUEST,
+        serde_json::json!({"error": "svg flamegraphs are not built; use format=pprof"}),
+    )
+}
+
 /// Generates CPU profiles.
 pub async fn profile_cpu_handler(req: Request<Body>) -> Result<Response<Body>, ApiError> {
-    enum Format {
-        Pprof,
-        Svg,
-    }
-
     // Parameters.
-    let format = match get_query_param(&req, "format")?.as_deref() {
-        None => Format::Pprof,
-        Some("pprof") => Format::Pprof,
-        Some("svg") => Format::Svg,
+    match get_query_param(&req, "format")?.as_deref() {
+        None | Some("pprof") => {}
+        Some("svg") => return svg_not_built(),
         Some(format) => return Err(ApiError::BadRequest(anyhow!("invalid format {format}"))),
     };
     let seconds = match parse_query_param(&req, "seconds")? {
@@ -428,34 +431,18 @@ pub async fn profile_cpu_handler(req: Request<Body>) -> Result<Response<Body>, A
             .map_err(|err| ApiError::InternalServerError(err.into()))?
     };
 
-    // Return the report in the requested format.
-    match format {
-        Format::Pprof => {
-            let body = report
-                .pprof()
-                .map_err(|err| ApiError::InternalServerError(err.into()))?
-                .encode_to_vec();
+    // Return the report as pprof.
+    let body = report
+        .pprof()
+        .map_err(|err| ApiError::InternalServerError(err.into()))?
+        .encode_to_vec();
 
-            Response::builder()
-                .status(200)
-                .header(CONTENT_TYPE, "application/octet-stream")
-                .header(CONTENT_DISPOSITION, "attachment; filename=\"profile.pb\"")
-                .body(Body::from(body))
-                .map_err(|err| ApiError::InternalServerError(err.into()))
-        }
-
-        Format::Svg => {
-            let mut body = Vec::new();
-            report
-                .flamegraph(&mut body)
-                .map_err(|err| ApiError::InternalServerError(err.into()))?;
-            Response::builder()
-                .status(200)
-                .header(CONTENT_TYPE, "image/svg+xml")
-                .body(Body::from(body))
-                .map_err(|err| ApiError::InternalServerError(err.into()))
-        }
-    }
+    Response::builder()
+        .status(200)
+        .header(CONTENT_TYPE, "application/octet-stream")
+        .header(CONTENT_DISPOSITION, "attachment; filename=\"profile.pb\"")
+        .body(Body::from(body))
+        .map_err(|err| ApiError::InternalServerError(err.into()))
 }
 
 /// Generates heap profiles.
@@ -465,7 +452,6 @@ pub async fn profile_heap_handler(req: Request<Body>) -> Result<Response<Body>, 
     enum Format {
         Jemalloc,
         Pprof,
-        Svg,
     }
 
     // Parameters.
@@ -473,7 +459,7 @@ pub async fn profile_heap_handler(req: Request<Body>) -> Result<Response<Body>, 
         None => Format::Pprof,
         Some("jemalloc") => Format::Jemalloc,
         Some("pprof") => Format::Pprof,
-        Some("svg") => Format::Svg,
+        Some("svg") => return svg_not_built(),
         Some(format) => return Err(ApiError::BadRequest(anyhow!("invalid format {format}"))),
     };
 
@@ -518,18 +504,6 @@ pub async fn profile_heap_handler(req: Request<Body>) -> Result<Response<Body>, 
                 .header(CONTENT_TYPE, "application/octet-stream")
                 .header(CONTENT_DISPOSITION, "attachment; filename=\"heap.pb.gz\"")
                 .body(Body::from(data))
-                .map_err(|err| ApiError::InternalServerError(err.into()))
-        }
-
-        Format::Svg => {
-            let svg = tokio::task::spawn_blocking(move || prof_ctl.dump_flamegraph())
-                .await
-                .map_err(|join_err| ApiError::InternalServerError(join_err.into()))?
-                .map_err(ApiError::InternalServerError)?;
-            Response::builder()
-                .status(200)
-                .header(CONTENT_TYPE, "image/svg+xml")
-                .body(Body::from(svg))
                 .map_err(|err| ApiError::InternalServerError(err.into()))
         }
     }
@@ -756,5 +730,38 @@ mod tests {
         let header_val = resp.headers().get(&X_REQUEST_ID_HEADER);
 
         assert_ne!(header_val, None, "response header should NOT be empty");
+    }
+
+    /// Loams Postgres builds pprof and jemalloc_pprof without their flamegraph
+    /// renderer (inferno is CDDL-1.0, LP-0003), so `format=svg` is refused
+    /// before any profile is taken.
+    async fn assert_svg_refused(response: Result<Response<Body>, ApiError>) {
+        let response = response.expect("a 400 response, not an ApiError");
+        assert_eq!(response.status(), hyper::StatusCode::BAD_REQUEST);
+        assert_eq!(
+            response.headers().get(CONTENT_TYPE).unwrap(),
+            "application/json"
+        );
+        let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+            serde_json::json!({"error": "svg flamegraphs are not built; use format=pprof"})
+        );
+    }
+
+    #[tokio::test]
+    async fn profile_cpu_svg_is_refused() {
+        let req = Request::get("/profile/cpu?format=svg&seconds=60")
+            .body(Body::empty())
+            .unwrap();
+        assert_svg_refused(profile_cpu_handler(req).await).await;
+    }
+
+    #[tokio::test]
+    async fn profile_heap_svg_is_refused() {
+        let req = Request::get("/profile/heap?format=svg")
+            .body(Body::empty())
+            .unwrap();
+        assert_svg_refused(profile_heap_handler(req).await).await;
     }
 }

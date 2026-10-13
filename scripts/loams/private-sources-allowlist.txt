@@ -1,0 +1,4 @@
+# Files scripts/loams/check-no-private-sources.sh skips, one path per line,
+# relative to the repository root, each with a comment that says why.
+# Comment lines in the checked files are always allowed and need no entry.
+# Empty: no checked file needs an exception (NF1 Task 7).

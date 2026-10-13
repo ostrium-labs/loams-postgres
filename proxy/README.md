@@ -183,19 +183,12 @@ cargo run --bin local_proxy --features testing -- \
   --http 0.0.0.0:7432
 ```
 
-Start the auth/rest broker:
-
-Note: to enable the rest broker you need to replace the stub subzero-core crate with the real one.
+Start the auth broker:
 
 ```sh
-cargo add -p proxy subzero-core --git https://github.com/neondatabase/subzero --rev 396264617e78e8be428682f87469bb25429af88a
-```
-
-```sh
-LOGFMT=text OTEL_SDK_DISABLED=true cargo run --bin proxy --features testing,rest_broker -- \
+LOGFMT=text OTEL_SDK_DISABLED=true cargo run --bin proxy --features testing -- \
   -c server.crt -k server.key \
   --is-auth-broker true \
-  --is-rest-broker true \
   --wss 0.0.0.0:8080 \
   --http 0.0.0.0:7002 \
   --auth-backend local
@@ -214,8 +207,10 @@ curl -k "https://foo.local.neon.build:8080/sql" \
   -d '{"query":"select 1","params":[]}'
 ```
 
-Make a rest request against the auth broker (rest broker):
-```sh
-curl -k "https://foo.local.neon.build:8080/database/rest/v1/items?select=id,name&id=eq.1" \
--H "Authorization: Bearer $NEON_JWT"
-```
+## The REST broker (Data API) is not supported
+
+Loams Postgres does not support the REST broker (`--is-rest-broker`, the
+`rest_broker` feature; Neon's Data API). It needs `subzero-core`, which is
+Neon's private code: this repository keeps only the stub in
+`libs/proxy/subzero_core` so the workspace builds, and our images are never
+built with the `rest_broker` feature (LP-0004, Q720).
