@@ -2,8 +2,8 @@
 #   ghcr.io/ostrium-labs/loams-postgres-build-tools:<sha12>, amd64 and arm64.
 # Each architecture builds on its own runner and is pushed by digest, with
 # BuildKit's provenance (mode=max) and SBOM; the job `index` joins them into
-# one multi-arch index and attests its build provenance. Signing with cosign
-# moves to the reusable loams-sign.yml when NF1 Task 12 lands.
+# one multi-arch index, and `sign` signs and attests it through the reusable
+# loams-sign.yml (cosign keyless, build provenance, SPDX SBOMs; NF1 Task 12).
 # The job `pin` then opens a pull request that moves the storage Dockerfile's
 # ARG BUILD_TOOLS to the new index digest (scripts/loams/pin-build-tools.sh).
 #
@@ -112,8 +112,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-      id-token: write
-      attestations: write
     outputs:
       digest: ${{ steps.index.outputs.digest }}
     steps:
@@ -142,15 +140,21 @@ jobs:
           [[ $digest =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "no index digest for $IMAGE:$tag"; exit 1; }
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
           echo "$IMAGE:$tag = $IMAGE@$digest"
-      - name: Build provenance of the index
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-name: ${{ env.IMAGE }}
-          subject-digest: ${{ steps.index.outputs.digest }}
-          push-to-registry: true
+
+  sign:
+    needs: index
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/loams-sign.yml
+    with:
+      image: ghcr.io/ostrium-labs/loams-postgres-build-tools
+      digest: ${{ needs.index.outputs.digest }}
 
   pin:
-    needs: index
+    needs: [index, sign]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
