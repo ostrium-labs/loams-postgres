@@ -2,7 +2,7 @@
 # Tests for NF1 Task 7, the build hygiene patches (LP-0002 to LP-0006).
 #
 #   upstream_ci_absent       no workflow without the loams- prefix; strip-upstream-ci.sh is idempotent
-#   deny_rejects_cddl        `cargo deny check licenses` passes here and fails on a CDDL-1.0 fixture crate
+#   deny_rejects_cddl        `cargo deny check licenses sources` passes here; licenses fails on a CDDL-1.0 fixture crate
 #   no_inferno               `cargo tree -e features -i inferno` finds nothing, on any target
 #   no_private_sources       check-no-private-sources.sh passes here, fails on neon-fork-point and on fixtures
 #
@@ -32,7 +32,8 @@ upstream_ci_absent() {
 }
 
 deny_rejects_cddl() {
-  (cd "$repo" && cargo deny --log-level error check licenses) || fail "cargo deny check licenses failed"
+  # sources too: deny.toml refuses git sources outside ostrium-labs (LP-0005).
+  (cd "$repo" && cargo deny --log-level error check licenses sources) || fail "cargo deny check licenses sources failed"
 
   # A scratch workspace with this repository's deny.toml and one CDDL crate.
   local fx="$scratch/cddl"
