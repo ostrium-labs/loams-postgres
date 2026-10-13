@@ -781,8 +781,13 @@ def main(argv=None):
                 print(*action)
             return 0
         findings, errors = _collect(args, gh, now)
-        for action in file_findings(gh, args.repo, findings, now, args.dry_run, args.max_new):
-            print(*(a for a in action if a is not None))
+        actions = file_findings(gh, args.repo, findings, now, args.dry_run, args.max_new)
+        # A private finding is undisclosed, and this output is the run log of a
+        # public repository: its key names the crash site, and even "opened" or
+        # an issue number says that something was found. Print nothing for it.
+        if not any(f.private for f in findings):
+            for action in actions:
+                print(*(a for a in action if a is not None))
     except Refused as e:
         print(f"sla: refused: {e}", file=sys.stderr)
         return 2
