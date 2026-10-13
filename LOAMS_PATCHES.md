@@ -43,6 +43,7 @@ Columns:
 | LP-0010 | The storage image workflow: `loams-build-storage.yml` (amd64, arm64; `<sha12>`, `edge`), the smoke stack (`scripts/loams/smoke/`), the image audit (`scripts/loams/audit-image.sh`, vendored from Loams), labels and `/usr/share/doc/loams-postgres/` (`THIRD_PARTY_LICENSES.html` from `cargo about`) | build | @dina-kar | 2026-10-13 | loams-only | never |
 | LP-0011 | The compute image workflow: `loams-build-compute.yml` (the pin file's majors × amd64, arm64; heavy stages in their own cached jobs), `cargo auditable` and the licence files in the compute image, the core-extension smoke (`compute/tests/loams-smoke/`) | build | @dina-kar | 2026-10-13 | loams-only | never |
 | LP-0012 | Sign, attest and attach sources: the reusable `loams-sign.yml` (cosign keyless, build provenance, SPDX SBOMs per platform, the compute sources artifact from `scripts/loams/compute-sources.py`), called by `loams-build-tools.yml` and the release | ci | @dina-kar | 2026-10-13 | loams-only | never |
+| LP-0013 | Releases `lp-YYYY.MM.N`: `loams-release.yml` (gate, builds, image tags, signing, the GitHub Release with notes and the pin document, the pin PR on Loams, the cadence check), `scripts/loams/release-notes.py`, `docs/loams/release.md` | ci | @dina-kar | 2026-10-13 | loams-only | never |
 | LP-0032 | Least privilege for spec roles: a role gets what the spec asks for; `privileged` opts into Neon's admin attributes and `neon_superuser` | compute | @dina-kar | 2026-10-12 | loams-only | never (Loams' role model, PG2 R11.9) |
 
 ## Commits without a trailer
