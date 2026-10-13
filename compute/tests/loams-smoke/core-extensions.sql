@@ -50,16 +50,31 @@ CREATE EXTENSION IF NOT EXISTS pg_session_jwt;
 CREATE TABLE loams_smoke_wal (id int PRIMARY KEY);
 SELECT 'slot' FROM pg_create_logical_replication_slot('loams_smoke', 'wal2json');
 INSERT INTO loams_smoke_wal VALUES (1);
-SELECT count(*) = 1 AS wal2json_ok
-  FROM pg_logical_slot_get_changes('loams_smoke', NULL, NULL) WHERE data LIKE '%loams_smoke_wal%';
+DO $$
+BEGIN
+  IF (SELECT count(*) FROM pg_logical_slot_get_changes('loams_smoke', NULL, NULL)
+      WHERE data LIKE '%loams_smoke_wal%') <> 1 THEN
+    RAISE EXCEPTION 'wal2json did not decode the insert';
+  END IF;
+END $$;
 SELECT pg_drop_replication_slot('loams_smoke');
 
--- Queries
-SELECT count(*) >= 1 AS pg_stat_statements_ok FROM pg_stat_statements;
+-- Queries: each check raises, so a wrong answer fails the run (psql's
+-- ON_ERROR_STOP stops on errors only).
 CREATE TABLE loams_smoke_items (id int, embedding vector(3));
 INSERT INTO loams_smoke_items VALUES (1, '[1,2,3]'), (2, '[4,5,6]');
-SELECT id AS nearest FROM loams_smoke_items ORDER BY embedding <-> '[3,1,2]' LIMIT 1;
-SELECT ST_AsText(ST_Point(1, 2)) AS postgis_ok;
+DO $$
+BEGIN
+  IF (SELECT count(*) FROM pg_stat_statements) < 1 THEN
+    RAISE EXCEPTION 'pg_stat_statements recorded nothing';
+  END IF;
+  IF (SELECT id FROM loams_smoke_items ORDER BY embedding <-> '[3,1,2]' LIMIT 1) <> 1 THEN
+    RAISE EXCEPTION 'pgvector: wrong nearest neighbour';
+  END IF;
+  IF ST_AsText(ST_Point(1, 2)) <> 'POINT(1 2)' THEN
+    RAISE EXCEPTION 'PostGIS: ST_Point(1, 2) is %', ST_AsText(ST_Point(1, 2));
+  END IF;
+END $$;
 DO $$
 DECLARE
   missing text;
