@@ -2,7 +2,7 @@
 ### The image itself is mainly used as a container for the binaries and for starting e2e tests with custom parameters.
 ### By default, the binaries inside the image have some mock parameters and can start, but are not intended to be used
 ### inside this image in the real deployments.
-ARG REPOSITORY=ghcr.io/neondatabase
+ARG REPOSITORY=ghcr.io/ostrium-labs
 ARG IMAGE=build-tools
 ARG TAG=pinned
 ARG DEBIAN_VERSION=bookworm

@@ -223,24 +223,9 @@ RUN set -e \
     && cd .. \
     && rm -rf mold
 
-# LCOV
-# Build lcov from a fork:
-# It includes several bug fixes on top on v2.0 release (https://github.com/linux-test-project/lcov/compare/v2.0...master)
-# And patches from us:
-# - Generates json file with code coverage summary (https://github.com/neondatabase/lcov/commit/426e7e7a22f669da54278e9b55e6d8caabd00af0.tar.gz)
-RUN set +o pipefail && \
-	 for package in Capture::Tiny DateTime Devel::Cover Digest::MD5 File::Spec JSON::XS Memory::Process Time::HiRes JSON; do \
-		yes | perl -MCPAN -e "CPAN::Shell->notest('install', '$package')";\
-	 done && \
-	set -o pipefail
-# Split into separate step to debug flaky failures here
-RUN wget https://github.com/neondatabase/lcov/archive/426e7e7a22f669da54278e9b55e6d8caabd00af0.tar.gz -O lcov.tar.gz \
-    && ls -laht lcov.tar.gz && sha256sum lcov.tar.gz \
-    && echo "61a22a62e20908b8b9e27d890bd0ea31f567a7b9668065589266371dcbca0992  lcov.tar.gz" | sha256sum --check \
-    && mkdir -p lcov && tar -xzf lcov.tar.gz -C lcov --strip-components=1 \
-    && cd lcov \
-    && make install \
-    && rm -rf ../lcov.tar.gz
+# LCOV: not installed. Neon built a patched lcov 2.0 from its own fork for the
+# coverage reports of its CI, which Loams Postgres removed (LP-0002); nothing is
+# downloaded from Neon (LP-0006). scripts/coverage needs a local lcov.
 
 # Use the same version of libicu as the compute nodes so that
 # clusters created using inidb on pageserver can be used by computes.

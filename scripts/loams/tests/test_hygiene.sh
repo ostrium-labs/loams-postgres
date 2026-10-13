@@ -4,6 +4,7 @@
 #   upstream_ci_absent       no workflow without the loams- prefix; strip-upstream-ci.sh is idempotent
 #   deny_rejects_cddl        `cargo deny check licenses` passes here and fails on a CDDL-1.0 fixture crate
 #   no_inferno               `cargo tree -e features -i inferno` finds nothing, on any target
+#   no_private_sources       check-no-private-sources.sh passes here, fails on neon-fork-point and on fixtures
 #
 # Usage: test_hygiene.sh [test name ...]   (default: all)
 set -euo pipefail
@@ -61,7 +62,44 @@ no_inferno() {
   fi
 }
 
-all=(upstream_ci_absent deny_rejects_cddl no_inferno)
+no_private_sources() {
+  "$scripts/check-no-private-sources.sh" "$repo" > /dev/null || fail "fails on this tree"
+
+  # Neon's last public commit fetches from neondatabase in Cargo.lock, the
+  # Dockerfiles and the workflows.
+  local fp="$scratch/fork-point" files
+  mkdir -p "$fp"
+  files=$(git -C "$repo" ls-tree -r --name-only neon-fork-point |
+    grep -E '(^|/)(Cargo\.lock|Cargo\.toml|\.gitmodules|Dockerfile|[^/]*\.Dockerfile|Dockerfile\.[^/]*)$|^\.github/workflows/' || true)
+  [[ -n $files ]] || { fail "no files at neon-fork-point (fetch the tag)"; return; }
+  # shellcheck disable=SC2086
+  git -C "$repo" archive neon-fork-point $files | tar -x -C "$fp"
+  local out
+  if out=$("$scripts/check-no-private-sources.sh" "$fp" 2>&1); then
+    fail "passes on neon-fork-point"
+  fi
+  for want in 'Cargo.lock:' 'Dockerfile:' 'compute/compute-node.Dockerfile:' '.github/workflows/'; do
+    grep -qF -- "$want" <<<"$out" || fail "neon-fork-point: no finding in $want"
+  done
+
+  # Fixtures: comments pass; a registry without a slash, Neon's labs
+  # organisation and the build cache fail; the allowlist skips a file.
+  local fx="$scratch/sources"
+  mkdir -p "$fx/scripts/loams" "$fx/.github/workflows" "$fx/docker"
+  printf '# built from neondatabase/neon once\nFROM debian\n' > "$fx/Dockerfile"
+  printf 'name: x\n  # see neondatabase/neon#1\n' > "$fx/.github/workflows/ci.yml"
+  "$scripts/check-no-private-sources.sh" "$fx" > /dev/null || fail "a comment was refused"
+  for line in 'ARG REPOSITORY=ghcr.io/neondatabase' \
+              'RUN wget https://github.com/neondatabase-labs/pgrag/archive/v1.tar.gz' \
+              'ENV RUSTC_WRAPPER_CACHE=https://cache.neon.build/x'; do
+    printf 'FROM debian\n%s\n' "$line" > "$fx/docker/Dockerfile.ext"
+    "$scripts/check-no-private-sources.sh" "$fx" > /dev/null 2>&1 && fail "accepted: $line"
+  done
+  echo 'docker/Dockerfile.ext   # fixture' > "$fx/scripts/loams/private-sources-allowlist.txt"
+  "$scripts/check-no-private-sources.sh" "$fx" > /dev/null || fail "the allowlist did not skip the file"
+}
+
+all=(upstream_ci_absent deny_rejects_cddl no_inferno no_private_sources)
 for current in "${@:-${all[@]}}"; do
   echo "--- $current"
   "$current"
