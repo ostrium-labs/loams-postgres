@@ -105,19 +105,19 @@ jobs:
           TRIVY_USERNAME: ${{ github.actor }}
           TRIVY_PASSWORD: ${{ github.token }}
         run: |
-          mkdir -p "$RUNNER_TEMP/trivy"
+          mkdir -p "$RUNNER_TEMP/trivy-reports"
           n=0
           for ref in $(python3 -I scripts/loams/sla.py pinned-images --pins "$RUNNER_TEMP/pins.toml"); do
             n=$((n + 1))
             echo "trivy: $ref"
             "$RUNNER_TEMP/trivy" image --quiet --severity HIGH,CRITICAL --format json \
-              --output "$RUNNER_TEMP/trivy/$n.json" "$ref"
+              --output "$RUNNER_TEMP/trivy-reports/$n.json" "$ref"
           done
           test "$n" -gt 0
       - name: File findings
         env:
           GH_TOKEN: ${{ secrets.LOAMS_SLA_TOKEN }}
-        run: python3 -I scripts/loams/sla.py file --repo "$SLA_REPO" --kind trivy --input "$RUNNER_TEMP"/trivy/*.json
+        run: python3 -I scripts/loams/sla.py file --repo "$SLA_REPO" --kind trivy --input "$RUNNER_TEMP"/trivy-reports/*.json
 
   postgres:
     if: github.event_name != 'pull_request'
