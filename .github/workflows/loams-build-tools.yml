@@ -1,0 +1,193 @@
+# Our build-tools image (build-tools/Dockerfile, LP-0009, NF1 Task 9):
+#   ghcr.io/ostrium-labs/loams-postgres-build-tools:<sha12>, amd64 and arm64.
+# Each architecture builds on its own runner and is pushed by digest, with
+# BuildKit's provenance (mode=max) and SBOM; the job `index` joins them into
+# one multi-arch index and attests its build provenance. Signing with cosign
+# moves to the reusable loams-sign.yml when NF1 Task 12 lands.
+# The job `pin` then opens a pull request that moves the storage Dockerfile's
+# ARG BUILD_TOOLS to the new index digest (scripts/loams/pin-build-tools.sh).
+#
+# Runs on changes to build-tools/ on main, monthly (Debian and toolchain
+# fixes), and by hand. A pull request builds both architectures and pushes
+# nothing. Only main pushes images and the cache.
+#
+# Needs, besides Actions being enabled on this repository: "Allow GitHub
+# Actions to create and approve pull requests" (Settings, Actions) for the
+# pull request, or the secret LOAMS_BOT_TOKEN (the loams-postgres-bot App's
+# token, Q733), which also lets that pull request run the checks.
+name: loams-build-tools
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - build-tools/**
+      - .github/workflows/loams-build-tools.yml
+      - scripts/loams/pin-build-tools.sh
+  push:
+    branches: [main]
+    paths:
+      - build-tools/**
+      - .github/workflows/loams-build-tools.yml
+  schedule:
+    - cron: "23 3 2 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: loams-build-tools-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  IMAGE: ghcr.io/ostrium-labs/loams-postgres-build-tools
+  CACHE: ghcr.io/ostrium-labs/loams-postgres-buildcache
+  # Only main publishes (a push, the monthly run, or a dispatch on main).
+  PUBLISH: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+
+jobs:
+  build:
+    name: build (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 240
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: amd64, runner: ubuntu-24.04 }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build${{ env.PUBLISH == 'true' && ' and push by digest' || '' }}
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: build-tools/Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          build-args: |
+            DEBIAN_VERSION=bookworm
+          labels: |
+            org.opencontainers.image.title=loams-postgres-build-tools
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.licenses=Apache-2.0
+          provenance: ${{ env.PUBLISH == 'true' && 'mode=max' || 'false' }}
+          sbom: ${{ env.PUBLISH == 'true' }}
+          cache-from: type=registry,ref=${{ env.CACHE }}:build-tools-${{ matrix.arch }}
+          cache-to: ${{ env.PUBLISH == 'true' && format('type=registry,ref={0}:build-tools-{1},mode=max', env.CACHE, matrix.arch) || '' }}
+          outputs: ${{ env.PUBLISH == 'true' && format('type=image,name={0},push-by-digest=true,name-canonical=true,push=true', env.IMAGE) || 'type=cacheonly' }}
+      - name: Record the digest
+        if: env.PUBLISH == 'true'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          [[ $DIGEST =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "no digest: '$DIGEST'"; exit 1; }
+          mkdir -p "$RUNNER_TEMP/digests"
+          echo "$DIGEST" > "$RUNNER_TEMP/digests/${{ matrix.arch }}"
+      - if: env.PUBLISH == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: build-tools-digest-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/${{ matrix.arch }}
+          retention-days: 7
+
+  index:
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    outputs:
+      digest: ${{ steps.index.outputs.digest }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: build-tools-digest-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/digests
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: One index for amd64 and arm64, tagged <sha12>
+        id: index
+        run: |
+          set -euo pipefail
+          tag=${GITHUB_SHA:0:12}
+          refs=()
+          for arch in amd64 arm64; do
+            refs+=("$IMAGE@$(cat "$RUNNER_TEMP/digests/$arch")")
+          done
+          docker buildx imagetools create -t "$IMAGE:$tag" "${refs[@]}"
+          digest=$(docker buildx imagetools inspect "$IMAGE:$tag" --format '{{json .Manifest}}' | jq -r .digest)
+          [[ $digest =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "no index digest for $IMAGE:$tag"; exit 1; }
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "$IMAGE:$tag = $IMAGE@$digest"
+      - name: Build provenance of the index
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.index.outputs.digest }}
+          push-to-registry: true
+
+  pin:
+    needs: index
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      DIGEST: ${{ needs.index.outputs.digest }}
+      GH_TOKEN: ${{ secrets.LOAMS_BOT_TOKEN || github.token }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Open the pull request that pins the new digest
+        run: |
+          set -euo pipefail
+          scripts/loams/pin-build-tools.sh "$IMAGE@$DIGEST"
+          if git diff --quiet; then
+            echo "The Dockerfile already pins $IMAGE@$DIGEST"
+            exit 0
+          fi
+          short=${DIGEST#sha256:}
+          short=${short:0:12}
+          branch="bot/build-tools-$short"
+          bot='github-actions[bot]'
+          email='41898282+github-actions[bot]@users.noreply.github.com'
+          git -c user.name="$bot" -c user.email="$email" commit -q -a -F - <<EOF
+          loams-build: build-tools $short
+
+          Moves the storage Dockerfile's ARG BUILD_TOOLS to
+          $IMAGE@$DIGEST,
+          built by ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          from ${GITHUB_SHA}.
+
+          Loams-Patch: LP-0009
+          Signed-off-by: $bot <$email>
+          EOF
+          git push -q "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$branch"
+          gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$branch" \
+            --title "loams-build: build-tools $short" \
+            --body "Pins \`$IMAGE@$DIGEST\` (run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}, commit ${GITHUB_SHA}). Opened by loams-build-tools.yml."

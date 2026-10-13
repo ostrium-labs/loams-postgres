@@ -5,6 +5,8 @@
 #   deny_rejects_cddl        `cargo deny check licenses sources` passes here; licenses fails on a CDDL-1.0 fixture crate
 #   no_inferno               `cargo tree -e features -i inferno` finds nothing, on any target
 #   no_private_sources       check-no-private-sources.sh passes here, fails on neon-fork-point and on fixtures
+#   build_tools_pinned_by_digest  the storage Dockerfile builds FROM $BUILD_TOOLS, an ostrium-labs image by digest
+#                            (LP-0009); pin-build-tools.sh rewrites it and refuses anything else
 #
 # Usage: test_hygiene.sh [test name ...]   (default: all)
 set -euo pipefail
@@ -101,7 +103,31 @@ no_private_sources() {
   "$scripts/check-no-private-sources.sh" "$fx" > /dev/null || fail "the allowlist did not skip the file"
 }
 
-all=(upstream_ci_absent deny_rejects_cddl no_inferno no_private_sources)
+build_tools_pinned_by_digest() {
+  local df="$repo/Dockerfile" digest_re='ghcr\.io/ostrium-labs/[a-z0-9/_-]+@sha256:[0-9a-f]{64}'
+  grep -qE "^ARG BUILD_TOOLS=$digest_re\$" "$df" || fail "Dockerfile: no ARG BUILD_TOOLS=<ostrium-labs image>@sha256:<digest>"
+  grep -qE '^FROM \$BUILD_TOOLS AS ' "$df" || fail "Dockerfile: no stage FROM \$BUILD_TOOLS"
+  local stray
+  stray=$(grep -nE '^FROM ' "$df" | grep -vE 'FROM (\$BUILD_TOOLS|\$BASE_IMAGE_SHA) AS |FROM \$BASE_IMAGE_SHA$' || true)
+  [[ -z $stray ]] || fail "Dockerfile: FROM without a pinned base: $stray"
+
+  # pin-build-tools.sh rewrites the ARG, and refuses a tag or another registry.
+  local fx="$scratch/pin" d1 d2
+  mkdir -p "$fx"
+  cp "$df" "$fx/Dockerfile"
+  d1=sha256:$(printf '1%.0s' {1..64}) d2=sha256:$(printf 'a%.0s' {1..64})
+  "$scripts/pin-build-tools.sh" "ghcr.io/ostrium-labs/loams-postgres-build-tools@$d1" "$fx/Dockerfile" > /dev/null ||
+    fail "pin-build-tools.sh failed"
+  grep -qx "ARG BUILD_TOOLS=ghcr.io/ostrium-labs/loams-postgres-build-tools@$d1" "$fx/Dockerfile" || fail "the ARG was not rewritten"
+  [[ $(diff "$df" "$fx/Dockerfile" | grep -c '^[<>]') == 2 ]] || fail "pin-build-tools.sh changed more than the ARG line"
+  for bad in "ghcr.io/ostrium-labs/loams-postgres-build-tools:latest" "ghcr.io/neondatabase/build-tools@$d2" \
+             "ghcr.io/ostrium-labs/loams-postgres-build-tools@sha256:abc"; do
+    "$scripts/pin-build-tools.sh" "$bad" "$fx/Dockerfile" > /dev/null 2>&1 && fail "accepted $bad"
+  done
+  grep -qx "ARG BUILD_TOOLS=ghcr.io/ostrium-labs/loams-postgres-build-tools@$d1" "$fx/Dockerfile" || fail "a refused pin changed the file"
+}
+
+all=(upstream_ci_absent deny_rejects_cddl no_inferno no_private_sources build_tools_pinned_by_digest)
 for current in "${@:-${all[@]}}"; do
   echo "--- $current"
   "$current"
