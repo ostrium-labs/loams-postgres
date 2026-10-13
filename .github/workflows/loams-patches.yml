@@ -8,12 +8,15 @@ on:
     branches: [main]
   push:
     branches: [main]
+  # loams-release.yml runs it as part of the gate (NF1 Task 13).
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: loams-patches-${{ github.ref }}
+  # github.workflow is the caller's name when loams-release.yml calls this.
+  group: loams-patches-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

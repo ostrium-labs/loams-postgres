@@ -10,12 +10,15 @@ on:
     branches: [main]
   push:
     branches: [main]
+  # loams-release.yml runs it as part of the gate (NF1 Task 13).
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: loams-hygiene-${{ github.ref }}
+  # github.workflow is the caller's name when loams-release.yml calls this.
+  group: loams-hygiene-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -59,3 +62,5 @@ jobs:
         run: python3 -I scripts/loams/tests/test_compute_matrix.py
       - name: The compute image's source artifact
         run: python3 -I scripts/loams/tests/test_compute_sources.py
+      - name: Release notes and the pin document
+        run: python3 -I scripts/loams/tests/test_release.py
