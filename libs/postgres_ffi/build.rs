@@ -50,6 +50,7 @@ fn main() -> anyhow::Result<()> {
     // Finding the location of C headers for the Postgres server:
     // - if POSTGRES_INSTALL_DIR is set look into it, otherwise look into `<project_root>/pg_install`
     // - if there's a `bin/pg_config` file use it for getting include server, otherwise use `<project_root>/pg_install/{PG_MAJORVERSION}/include/postgresql/server`
+    //   (or `include/server`, see below)
     let pg_install_dir = if let Some(postgres_install_dir) = env::var_os("POSTGRES_INSTALL_DIR") {
         postgres_install_dir.into()
     } else {
@@ -79,11 +80,18 @@ fn main() -> anyhow::Result<()> {
                 .trim_end()
                 .into()
         } else {
-            let server_path = pg_install_dir_versioned
-                .join("include")
-                .join("postgresql")
-                .join("server")
-                .into_os_string();
+            // Postgres installs its server headers in include/postgresql/server, or
+            // in include/server when the prefix already names "postgres" or "pgsql"
+            // (src/Makefile.global.in), as it does in a checkout called
+            // loams-postgres (LP-0033).
+            let include = pg_install_dir_versioned.join("include");
+            let nested = include.join("postgresql").join("server");
+            let server_path = if !nested.exists() && include.join("server").exists() {
+                include.join("server")
+            } else {
+                nested
+            }
+            .into_os_string();
             server_path
                 .into_string()
                 .map_err(|s| anyhow!("Bad postgres server path {s:?}"))?
