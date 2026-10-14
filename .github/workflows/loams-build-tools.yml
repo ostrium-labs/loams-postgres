@@ -192,6 +192,10 @@ jobs:
           Signed-off-by: $bot <$email>
           EOF
           git push -q "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$branch"
-          gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$branch" \
-            --title "loams-build: build-tools $short" \
-            --body "Pins \`$IMAGE@$DIGEST\` (run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}, commit ${GITHUB_SHA}). Opened by loams-build-tools.yml."
+          # The REST API, not `gh pr create`: in a repository still in Neon's fork
+          # network, gh reads the parent repository, which Neon's IP allow list
+          # refuses (run 38490658624).
+          gh api "repos/$GITHUB_REPOSITORY/pulls" -f base=main -f head="$branch" \
+            -f title="loams-build: build-tools $short" \
+            -f body="Pins \`$IMAGE@$DIGEST\` (run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}, commit ${GITHUB_SHA}). Opened by loams-build-tools.yml." \
+            -q .html_url
