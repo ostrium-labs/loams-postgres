@@ -45,6 +45,7 @@ Columns:
 | LP-0012 | Sign, attest and attach sources: the reusable `loams-sign.yml` (cosign keyless, build provenance, SPDX SBOMs per platform, the compute sources artifact from `scripts/loams/compute-sources.py`), called by `loams-build-tools.yml` and the release | ci | @dina-kar | 2026-10-13 | loams-only | never |
 | LP-0013 | Releases `lp-YYYY.MM.N`: `loams-release.yml` (gate, builds, image tags, signing, the GitHub Release with notes and the pin document, the pin PR on Loams, the cadence check), `scripts/loams/release-notes.py`, `docs/loams/release.md` | ci | @dina-kar | 2026-10-13 | loams-only | never |
 | LP-0032 | Least privilege for spec roles: a role gets what the spec asks for; `privileged` opts into Neon's admin attributes and `neon_superuser` | compute | @dina-kar | 2026-10-12 | loams-only | never (Loams' role model, PG2 R11.9) |
+| LP-0033 | `postgres_ffi`'s build finds the server headers in `include/server` too: Postgres installs them there when the prefix names "postgres", as in a `loams-postgres` checkout | build | @dina-kar | 2026-10-14 | upstreamable | never |
 
 ## Commits without a trailer
 
