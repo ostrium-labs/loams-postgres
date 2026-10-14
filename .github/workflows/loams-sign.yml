@@ -161,7 +161,11 @@ jobs:
             --build-arg "PG_VERSION=$PGV" --build-arg "DEBIAN_VERSION=$DEBIAN" \
             --cache-from "type=registry,ref=ghcr.io/ostrium-labs/loams-postgres-buildcache:compute-$PGV-amd64" \
             --output "type=tar,dest=$RUNNER_TEMP/sources.tar" .
-          tar -tf "$RUNNER_TEMP/sources.tar" | grep -qx 'SHA256SUMS'
+          # grep reads the whole listing: with -q it stops at the match, tar then
+          # fails on the closed pipe, and pipefail fails the step (run 38618865022).
+          tar -tf "$RUNNER_TEMP/sources.tar" > "$RUNNER_TEMP/sources.list"
+          grep -Eq '^(\./)?SHA256SUMS$' "$RUNNER_TEMP/sources.list"
+          echo "sources.tar: $(wc -l < "$RUNNER_TEMP/sources.list") files"
           ls -la "$RUNNER_TEMP/sources.tar"
       - uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2.0.1
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
