@@ -10,8 +10,9 @@
 #       --certificate-oidc-issuer https://token.actions.githubusercontent.com
 #       --certificate-identity-regexp '^https://github.com/ostrium-labs/loams-postgres/\.github/workflows/loams-(release|sign)\.yml@refs/heads/main$'
 #   - actions/attest-build-provenance, pushed to the registry;
-#   - an SPDX SBOM per platform (Syft, through anchore/sbom-action), attested
-#     with actions/attest-sbom;
+#   - an SPDX SBOM per platform (Syft, through anchore/sbom-action), cut to its
+#     packages, licences and purls (scripts/loams/slim-sbom.py: attest-sbom
+#     refuses more than 16 MiB) and attested with actions/attest-sbom;
 #   - with `sources: true` (compute images): sources.tar, built from the
 #     generated loams-sources stage (scripts/loams/compute-sources.py: every
 #     downloaded tarball and patch, and Postgres' tree, with SHA256SUMS),
@@ -99,22 +100,28 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
       - name: Syft configuration for ${{ matrix.platform }}
         env:
           PLATFORM: ${{ matrix.platform }}
+        # Packages only: the files are dropped below anyway (attest-sbom's 16 MiB limit).
         run: |
-          printf 'platform: %s\n' "$PLATFORM" > "$RUNNER_TEMP/syft.yaml"
+          printf 'platform: %s\nfile:\n  metadata:\n    selection: none\n' "$PLATFORM" > "$RUNNER_TEMP/syft.yaml"
       - name: SPDX SBOM
         uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
           image: ${{ inputs.image }}@${{ inputs.digest }}
           format: spdx-json
-          output-file: ${{ runner.temp }}/sbom.spdx.json
+          output-file: ${{ runner.temp }}/sbom-full.spdx.json
           config: ${{ runner.temp }}/syft.yaml
           upload-artifact: false
           upload-release-assets: false
           registry-username: ${{ github.actor }}
           registry-password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Packages, licences and purls only (scripts/loams/slim-sbom.py)
+        run: python3 -I scripts/loams/slim-sbom.py "$RUNNER_TEMP/sbom-full.spdx.json" "$RUNNER_TEMP/sbom.spdx.json"
       - name: Attest the SBOM
         uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
         with:

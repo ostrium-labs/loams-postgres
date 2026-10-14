@@ -64,3 +64,5 @@ jobs:
         run: python3 -I scripts/loams/tests/test_compute_sources.py
       - name: Release notes and the pin document
         run: python3 -I scripts/loams/tests/test_release.py
+      - name: The SBOM cut for attest-sbom
+        run: python3 -I scripts/loams/tests/test_slim_sbom.py

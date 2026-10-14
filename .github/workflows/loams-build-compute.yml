@@ -46,11 +46,27 @@ on:
       - scripts/loams/compute-heavy-stages.txt
       - scripts/loams/smoke/**
       - .github/workflows/loams-build-compute.yml
+  # The same paths as a pull request: a push that cannot change the image
+  # builds nothing (each run is hours of runners).
   push:
     branches: [main]
-    paths-ignore:
-      - "**.md"
-      - docs/**
+    paths:
+      - compute/**
+      - compute_tools/**
+      - pgxn/**
+      - vendor/**
+      - libs/**
+      - proxy/**
+      - Cargo.toml
+      - Cargo.lock
+      - .dockerignore
+      - about.toml
+      - about.hbs
+      - docker-compose/ext-src/**
+      - scripts/loams/compute-matrix.py
+      - scripts/loams/compute-heavy-stages.txt
+      - scripts/loams/smoke/**
+      - .github/workflows/loams-build-compute.yml
   workflow_dispatch:
   workflow_call:
     inputs:
