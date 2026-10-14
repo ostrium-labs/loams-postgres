@@ -34,7 +34,7 @@ class Plan(unittest.TestCase):
         out = cm.plan(PINS, REVISIONS, ["plv8-build", "postgis-build"], SHA)
         self.assertEqual([m["pg"] for m in out["majors"]], ["16", "17"])
         v16, v17 = out["majors"]
-        self.assertEqual(v16, {"pg": "16", "pg_version": "v16", "debian": "bullseye", "minor": "16.9",
+        self.assertEqual(v16, {"pg": "16", "pg_version": "v16", "debian": "bookworm", "minor": "16.9",
                                "beta": False, "tags": ["16.9-0123456789ab", "edge"]})
         self.assertEqual(v17["debian"], "bookworm")
         self.assertEqual(v17["tags"], ["17.5-0123456789ab", "edge"])

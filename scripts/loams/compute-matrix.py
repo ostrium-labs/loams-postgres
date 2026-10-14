@@ -26,9 +26,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
-# Neon built 14 to 16 on bullseye and 17 on bookworm; the same here until Q727
-# (Debian for 18) is answered by NF1 Task 28.
-DEBIAN = {14: "bullseye", 15: "bullseye", 16: "bullseye"}
+# Neon built 14 to 16 on bullseye and 17 on bookworm. Bullseye's LTS ended on
+# 2026-08-31 and its security archive is gone from deb.debian.org (the first
+# v16 build failed on 404s), so 16 is built on bookworm too (NF1 Task 14
+# ruling: glibc 2.36 and ICU 72 instead of 2.31 and 67, so text indexes of a
+# v16 database created on Neon's image need a REINDEX). 18 waits for Q727 (Task 28).
+DEBIAN = {14: "bullseye", 15: "bullseye"}
 DEFAULT_DEBIAN = "bookworm"
 
 
