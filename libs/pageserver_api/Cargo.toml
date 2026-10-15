@@ -5,12 +5,15 @@ edition = "2024"
 license.workspace = true
 
 [features]
-default = ["io-align-512", "storage-clients"]
+default = ["io-align-512", "storage-clients", "otel"]
 # The pageserver configuration's storage broker and remote storage settings.
 # Consumers that need only the API types (Loams' WAL decoder, through
 # wal_decoder) turn default features off, which keeps both clients and their
 # dependency trees (the HTTP utilities' profilers, the cloud SDKs) out.
 storage-clients = ["dep:storage_broker", "dep:remote_storage"]
+# The conversions of the tracing exporter settings into tracing-utils' types.
+# API-only consumers leave it out, and with it the OpenTelemetry SDK.
+otel = ["dep:tracing-utils"]
 # See pageserver/Cargo.toml
 testing = ["dep:nix"]
 # Direct IO alignment options (mutually exclusive)
@@ -47,7 +50,7 @@ nix = { workspace = true, optional = true }
 reqwest.workspace = true
 rand.workspace = true
 tracing.workspace = true
-tracing-utils.workspace = true
+tracing-utils = { workspace = true, optional = true }
 once_cell.workspace = true
 
 [dev-dependencies]

@@ -5,12 +5,17 @@ edition.workspace = true
 license.workspace = true
 
 [features]
-default = ["rename_noreplace", "tarball"]
+default = ["rename_noreplace", "tarball", "auth", "postgres-connection"]
 rename_noreplace = []
 # The zstd tarball helpers (`utils::zstd`), used by pageserver and safekeeper.
 # API-only consumers (pageserver_api, postgres_ffi, wal_decoder) turn default
 # features off, which keeps tokio-tar (RUSTSEC-2025-0111) out of their graph.
 tarball = ["dep:tokio-tar"]
+# JWT auth (`utils::auth`) and the safekeeper connection string
+# (`postgres_client::wal_stream_connection_config`). API-only consumers turn
+# them off too, which keeps jsonwebtoken and rust-postgres out of their graph.
+auth = ["dep:jsonwebtoken", "dep:pem"]
+postgres-connection = ["dep:postgres_connection"]
 # Enables test-only APIs, incuding failpoints. In particular, enables the `fail_point!` macro,
 # which adds some runtime cost to run tests on outage conditions
 testing = ["fail/failpoints"]
@@ -30,10 +35,10 @@ hex = { workspace = true, features = ["serde"] }
 humantime.workspace = true
 fail.workspace = true
 futures = { workspace = true }
-jsonwebtoken.workspace = true
+jsonwebtoken = { workspace = true, optional = true }
 nix = { workspace = true, features = ["ioctl"] }
 once_cell.workspace = true
-pem.workspace = true
+pem = { workspace = true, optional = true }
 pin-project-lite.workspace = true
 regex.workspace = true
 serde.workspace = true
@@ -48,7 +53,6 @@ toml_edit = { workspace = true, features = ["serde"] }
 tracing.workspace = true
 tracing-error.workspace = true
 tracing-subscriber = { workspace = true, features = ["json", "registry"] }
-tracing-utils.workspace = true
 rand.workspace = true
 scopeguard.workspace = true
 uuid.workspace = true
@@ -57,7 +61,7 @@ strum_macros.workspace = true
 walkdir.workspace = true
 
 pq_proto.workspace = true
-postgres_connection.workspace = true
+postgres_connection = { workspace = true, optional = true }
 metrics.workspace = true
 
 const_format.workspace = true

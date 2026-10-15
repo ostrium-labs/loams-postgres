@@ -2,7 +2,9 @@
 //! pageserver) which depends on tenant/timeline ids and thus not fitting into
 //! postgres_connection crate.
 
+#[cfg(feature = "postgres-connection")]
 use anyhow::Context;
+#[cfg(feature = "postgres-connection")]
 use postgres_connection::{PgConnectionConfig, parse_host_port};
 
 use crate::id::TenantTimelineId;
@@ -48,6 +50,7 @@ pub struct ConnectionConfigArgs<'a> {
     pub availability_zone: Option<&'a str>,
 }
 
+#[cfg(feature = "postgres-connection")]
 impl<'a> ConnectionConfigArgs<'a> {
     fn options(&'a self) -> Vec<String> {
         let mut options = vec![
@@ -78,6 +81,7 @@ impl<'a> ConnectionConfigArgs<'a> {
 
 /// Create client config for fetching WAL from safekeeper on particular timeline.
 /// listen_pg_addr_str is in form host:\[port\].
+#[cfg(feature = "postgres-connection")]
 pub fn wal_stream_connection_config(
     args: ConnectionConfigArgs,
 ) -> anyhow::Result<PgConnectionConfig> {

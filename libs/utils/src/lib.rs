@@ -21,6 +21,7 @@ pub mod bin_ser;
 pub mod crashsafe;
 
 // common authentication routines
+#[cfg(feature = "auth")]
 pub mod auth;
 
 // utility functions and helper traits for unified unique id generation/serialization etc.

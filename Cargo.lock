@@ -5198,7 +5198,6 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
- "tracing-utils",
  "workspace_hack",
 ]
 
@@ -5263,7 +5262,6 @@ dependencies = [
  "byteorder",
  "bytes",
  "itertools 0.10.5",
- "postgres-protocol",
  "rand 0.9.1",
  "serde",
  "thiserror 1.0.69",
@@ -8451,7 +8449,6 @@ dependencies = [
  "tracing",
  "tracing-error",
  "tracing-subscriber",
- "tracing-utils",
  "uuid",
  "walkdir",
 ]

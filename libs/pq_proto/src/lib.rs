@@ -11,8 +11,12 @@ use std::{fmt, io, str};
 use byteorder::{BigEndian, ReadBytesExt};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use itertools::Itertools;
-// re-export for use in utils pageserver_feedback.rs
-pub use postgres_protocol::PG_EPOCH;
+/// Midnight, 2000-01-01 UTC: the epoch of Postgres timestamps. Defined here,
+/// as postgres-protocol defines it, so the protocol types do not pull in that
+/// crate (and rust-postgres) for one constant; utils' pageserver_feedback uses it.
+pub static PG_EPOCH: std::sync::LazyLock<std::time::SystemTime> = std::sync::LazyLock::new(|| {
+    std::time::UNIX_EPOCH + std::time::Duration::from_secs(946_684_800)
+});
 use serde::{Deserialize, Serialize};
 
 pub type Oid = u32;

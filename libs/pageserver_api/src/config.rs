@@ -394,6 +394,7 @@ pub struct Tracing {
     pub export_config: OtelExporterConfig,
 }
 
+#[cfg(feature = "otel")]
 impl From<&OtelExporterConfig> for tracing_utils::ExportConfig {
     fn from(val: &OtelExporterConfig) -> Self {
         tracing_utils::ExportConfig {
@@ -404,6 +405,7 @@ impl From<&OtelExporterConfig> for tracing_utils::ExportConfig {
     }
 }
 
+#[cfg(feature = "otel")]
 impl From<OtelExporterProtocol> for tracing_utils::Protocol {
     fn from(val: OtelExporterProtocol) -> Self {
         match val {
