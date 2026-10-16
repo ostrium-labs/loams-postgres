@@ -66,3 +66,10 @@ jobs:
         run: python3 -I scripts/loams/tests/test_release.py
       - name: The SBOM cut for attest-sbom
         run: python3 -I scripts/loams/tests/test_slim_sbom.py
+      - name: The Postgres fork's branches (NF1 Task 15)
+        env:
+          # Read-only; the endpoints are public, the token only lifts the rate limit.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 -I scripts/loams/tests/test_postgres_branches.py
+          python3 -I scripts/loams/check-postgres-branches.py
