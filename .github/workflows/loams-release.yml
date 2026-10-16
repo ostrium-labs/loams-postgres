@@ -91,6 +91,10 @@ jobs:
   # on the built images, before anything is tagged (job g3).
   gate:
     needs: prepare
+    # G1 and G2 pull the build-tools image.
+    permissions:
+      contents: read
+      packages: read
     uses: ./.github/workflows/loams-gate.yml
     with:
       tiers: g0,g1,g2
@@ -231,6 +235,9 @@ jobs:
   g3:
     needs: [prepare, candidate]
     if: always() && needs.candidate.result == 'success'
+    permissions:
+      contents: read
+      packages: read
     uses: ./.github/workflows/loams-gate.yml
     with:
       tiers: g3
