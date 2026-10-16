@@ -31,8 +31,10 @@ on `ostrium-labs/loams`.
 
 3. The workflow:
    - refuses a version that is malformed or already tagged;
-   - runs the gate (until NF1 Task 16: `loams-hygiene`, `loams-patches`, `loams-dco`);
+   - runs the gate's G0 to G2 (`loams-gate.yml`, [gate.md](gate.md));
    - builds the images for the commit (`loams-build-storage.yml`, `loams-build-compute.yml`);
+   - runs G3 on the candidate's pin document: Loams' integration on exactly these
+     digests (`ostrium-labs/loams` `nf1-candidate.yml`), before anything is tagged;
    - tags them `lp-YYYY.MM.N` (storage) and `<pgminor>-lp-YYYY.MM.N` (compute;
      `<pgminor>-beta-lp-YYYY.MM.N` for a beta major);
    - signs and attests each index and attaches the compute images' sources
@@ -52,9 +54,9 @@ a major's storage and compute minors apart is refused: release `full`.
 ## What the release needs
 
 - Actions enabled on this repository, and package write access for `GITHUB_TOKEN`.
-- The secret `LOAMS_BOT_TOKEN` (the `loams-postgres-bot` App's token, Q733) for the pin
-  pull request and the cadence issue. Without it the workflow prints the `pins.py`
-  command to run by hand.
+- The secret `LOAMS_BOT_TOKEN` (an organisation secret since 2026-10-16, Q733) for G3,
+  the pin pull request and the cadence issue. Without it G3 fails, so no release can
+  be tagged.
 
 ## Verifying a release
 

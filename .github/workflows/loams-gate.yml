@@ -1,0 +1,332 @@
+# The test gate, G0 to G3 (LP-0015, NF1 Task 16; design §51 §6.4).
+#
+#   G0  lint and policy: rustfmt, clippy on G1's crates, cargo deny (bans,
+#       licences, sources), actionlint, and the hygiene, patch-queue and DCO
+#       checks (loams-hygiene.yml, loams-patches.yml, loams-dco.yml).
+#   G1  cargo nextest on postgres_ffi, wal_decoder, pageserver_api, compute_api,
+#       compute_tools and the pageserver; the pageserver's unit tests once per
+#       virtual-file I/O engine (std-fs, tokio-epoll-uring).
+#   G2  Neon's test_runner with neon_local on scripts/loams/gate-subset.txt,
+#       once per Postgres major Loams pins (supported, maintenance and beta).
+#   G3  Loams' integration on a release candidate: the candidate's pin document
+#       goes to ostrium-labs/loams nf1-candidate.yml, which runs Loams'
+#       Postgres e2e jobs, the WAL decoder's golden tests and an extension
+#       smoke on those images, and reports `loams-gate / g3` on this commit.
+#
+# When (owner, 2026-10-16, Q721): nightly, on every release (loams-release.yml
+# calls G0 to G2 before it builds and G3 before it tags), and by hand. Not on
+# pull requests: those run the light checks (hygiene, patches, dco), which are
+# the required checks on main. Every job is on a standard GitHub-hosted runner
+# (free for a public repository), or vars.RUNNER_HEAVY for G1 and G2.
+#
+# The organisation shares one concurrent-job limit with Loams' CI, so at most
+# two heavy jobs run at once (G1 beside G2's build, then the G2 majors two at a
+# time), the nightly starts at 21:07 UTC, away from Loams' nightly (02:17), and
+# runs of the same caller and tiers queue rather than overlap.
+#
+# A failing tier fails the job `gate` (scripts/loams/gate.py verdict). A known
+# flake is skipped only with a listed issue in gate-subset.txt.
+name: loams-gate
+
+on:
+  schedule:
+    - cron: "7 21 * * *"
+  workflow_dispatch:
+    inputs:
+      tiers:
+        description: "Tiers to run, comma-separated (g0,g1,g2,g3)"
+        type: string
+        default: "g0,g1,g2"
+      candidate-pins:
+        description: "G3 only: the candidate's pin document (TOML), as release-notes.py pin-doc writes it"
+        type: string
+        default: ""
+  workflow_call:
+    inputs:
+      tiers:
+        type: string
+        default: "g0,g1,g2"
+      candidate-pins:
+        type: string
+        default: ""
+    secrets:
+      LOAMS_BOT_TOKEN:
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  # github.workflow is the caller's name when loams-release.yml calls this.
+  group: loams-gate-${{ github.workflow }}-${{ github.ref }}-${{ inputs.tiers || 'nightly' }}
+  cancel-in-progress: false
+
+env:
+  TIERS: ${{ inputs.tiers || 'g0,g1,g2' }}
+  # actionlint 1.7.7 (2025-01-19), checked by sha256.
+  ACTIONLINT_URL: https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz
+  ACTIONLINT_SHA256: 023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757
+  # cargo-deny 0.20.2, as loams-hygiene.yml.
+  CARGO_DENY_URL: https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/cargo-deny-0.20.2-x86_64-unknown-linux-musl.tar.gz
+  CARGO_DENY_SHA256: 9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      tiers: ${{ steps.plan.outputs.tiers }}
+      majors: ${{ steps.plan.outputs.majors }}
+      build-tools: ${{ steps.plan.outputs.build-tools }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Tiers, majors and the build-tools image
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          echo "tiers=$(python3 -I scripts/loams/gate.py tiers --tiers "$TIERS")" >> "$GITHUB_OUTPUT"
+          # The majors Loams pins (as loams-build-compute.yml): G2 runs once per major.
+          gh api repos/ostrium-labs/loams/contents/deploy/pins/loams-postgres-images.toml \
+            -H 'Accept: application/vnd.github.raw' > "$RUNNER_TEMP/pins.toml"
+          majors=$(python3 -I scripts/loams/compute-matrix.py --pins "$RUNNER_TEMP/pins.toml" --sha "$GITHUB_SHA" \
+            | sed -n 's/^majors=//p' | jq -c '[.[].pg]')
+          echo "majors=$majors" >> "$GITHUB_OUTPUT"
+          # The images' builder, pinned by digest in the Dockerfile (LP-0009).
+          tools=$(sed -n 's/^ARG BUILD_TOOLS=//p' Dockerfile)
+          [[ $tools =~ ^ghcr\.io/ostrium-labs/loams-postgres-build-tools@sha256:[0-9a-f]{64}$ ]] \
+            || { echo "unexpected BUILD_TOOLS in the Dockerfile: $tools"; exit 1; }
+          echo "build-tools=$tools" >> "$GITHUB_OUTPUT"
+          echo "tiers $TIERS; majors $majors; $tools" >> "$GITHUB_STEP_SUMMARY"
+
+  # ---- G0 ----
+  g0-hygiene:
+    needs: plan
+    if: fromJSON(needs.plan.outputs.tiers).g0
+    uses: ./.github/workflows/loams-hygiene.yml
+  g0-patches:
+    needs: plan
+    if: fromJSON(needs.plan.outputs.tiers).g0
+    uses: ./.github/workflows/loams-patches.yml
+  g0-dco:
+    needs: plan
+    if: fromJSON(needs.plan.outputs.tiers).g0
+    uses: ./.github/workflows/loams-dco.yml
+  g0-lint:
+    needs: plan
+    if: fromJSON(needs.plan.outputs.tiers).g0
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # vendor/postgres-v*: postgres_ffi's bindings need the headers.
+          submodules: true
+          persist-credentials: false
+      - name: Tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bison flex libreadline-dev zlib1g-dev libssl-dev libicu-dev libseccomp-dev \
+            pkg-config protobuf-compiler libclang-dev
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/actionlint.tgz" "$ACTIONLINT_URL"
+          echo "$ACTIONLINT_SHA256  $RUNNER_TEMP/actionlint.tgz" | sha256sum -c -
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/deny.tgz" "$CARGO_DENY_URL"
+          echo "$CARGO_DENY_SHA256  $RUNNER_TEMP/deny.tgz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xzf "$RUNNER_TEMP/actionlint.tgz" -C "$RUNNER_TEMP/bin" actionlint
+          tar -xzf "$RUNNER_TEMP/deny.tgz" -C "$RUNNER_TEMP/bin" --strip-components=1
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: actionlint
+        run: actionlint
+      - name: rustfmt
+        # The toolchain comes from rust-toolchain.toml (rustup is on the runner).
+        run: cargo fmt --all -- --check
+      - name: cargo deny (bans, licences, sources)
+        # Advisories are loams-advisories.yml's: each one gets a tracked issue
+        # with a due date (D805) instead of stopping every release at once.
+        run: cargo deny --log-level error check bans licenses sources
+      - name: Postgres headers
+        run: make -j"$(nproc)" postgres-headers > "$RUNNER_TEMP/headers.log" 2>&1 || { tail -50 "$RUNNER_TEMP/headers.log"; exit 1; }
+      - name: clippy on G1's crates
+        run: |
+          cargo clippy --locked --all-targets \
+            --features wal_decoder/testing,pageserver_api/testing,compute_tools/testing,pageserver/testing \
+            -p postgres_ffi -p wal_decoder -p pageserver_api -p compute_api -p compute_tools -p pageserver \
+            -- -D warnings
+
+  # ---- G1 ----
+  g1:
+    needs: plan
+    if: fromJSON(needs.plan.outputs.tiers).g1
+    runs-on: ${{ vars.RUNNER_HEAVY || 'ubuntu-24.04' }}
+    timeout-minutes: 300
+    permissions:
+      contents: read
+      packages: read
+    env:
+      BUILD_TOOLS: ${{ needs.plan.outputs.build-tools }}
+    steps:
+      - name: Free disk (the runner's unused toolchains)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          submodules: true
+          persist-credentials: false
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Restore the cargo registry
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/home/cargo
+          key: loams-gate-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: loams-gate-cargo-
+      - name: G1 in the build-tools image
+        run: scripts/loams/gate-docker.sh g1
+      - name: Save the cargo registry
+        if: always() && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/home/cargo
+          key: loams-gate-cargo-${{ hashFiles('Cargo.lock') }}-${{ github.run_id }}
+
+  # ---- G2 ----
+  g2-build:
+    needs: plan
+    if: fromJSON(needs.plan.outputs.tiers).g2
+    runs-on: ${{ vars.RUNNER_HEAVY || 'ubuntu-24.04' }}
+    timeout-minutes: 300
+    permissions:
+      contents: read
+      packages: read
+    env:
+      BUILD_TOOLS: ${{ needs.plan.outputs.build-tools }}
+    steps:
+      - name: Free disk (the runner's unused toolchains)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          submodules: true
+          persist-credentials: false
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Restore the cargo registry
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/home/cargo
+          key: loams-gate-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: loams-gate-cargo-
+      - name: Release build in the build-tools image
+        run: scripts/loams/gate-docker.sh g2-build gate-build.tar.zst
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: loams-gate-build-${{ github.run_id }}-${{ github.run_attempt }}
+          path: gate-build.tar.zst
+          retention-days: 1
+          compression-level: 0
+
+  g2:
+    needs: [plan, g2-build]
+    if: fromJSON(needs.plan.outputs.tiers).g2
+    runs-on: ${{ vars.RUNNER_HEAVY || 'ubuntu-24.04' }}
+    timeout-minutes: 240
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        major: ${{ fromJSON(needs.plan.outputs.majors) }}
+    name: g2 (pg${{ matrix.major }})
+    env:
+      BUILD_TOOLS: ${{ needs.plan.outputs.build-tools }}
+      MAJOR: ${{ matrix.major }}
+    steps:
+      - name: Free disk (the runner's unused toolchains)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # test_pg_regress reads the regression suite from vendor/postgres-v<N>.
+          submodules: true
+          persist-credentials: false
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: loams-gate-build-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Unpack the build
+        run: tar -x --zstd -f gate-build.tar.zst && rm gate-build.tar.zst
+      - name: Restore the Python environment
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/home/cache
+          key: loams-gate-poetry-${{ hashFiles('poetry.lock') }}
+      - name: test_runner on the subset, Postgres ${{ matrix.major }}
+        run: scripts/loams/gate-docker.sh g2 "$MAJOR"
+      - name: Save the Python environment
+        if: always() && github.ref == 'refs/heads/main' && matrix.major == fromJSON(needs.plan.outputs.majors)[0]
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/home/cache
+          key: loams-gate-poetry-${{ hashFiles('poetry.lock') }}-${{ github.run_id }}
+      - name: Test output (on failure)
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: loams-gate-g2-pg${{ matrix.major }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test_output/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # ---- G3 ----
+  g3:
+    needs: plan
+    if: fromJSON(needs.plan.outputs.tiers).g3
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    env:
+      CANDIDATE_PINS: ${{ inputs.candidate-pins }}
+      GH_TOKEN: ${{ secrets.LOAMS_BOT_TOKEN }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Loams' integration on the candidate (ostrium-labs/loams nf1-candidate.yml)
+        run: scripts/loams/gate-g3.sh "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+  gate:
+    needs: [plan, g0-hygiene, g0-patches, g0-dco, g0-lint, g1, g2-build, g2, g3]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Every requested tier is green (gate_fails_on_red_tier)
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          [ "$(jq -r .plan.result <<<"$NEEDS")" = success ] || { echo "the plan job failed"; exit 1; }
+          python3 -I scripts/loams/gate.py verdict --tiers "$TIERS" --needs "$(jq -c 'del(.plan)' <<<"$NEEDS")"

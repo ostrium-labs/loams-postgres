@@ -1,0 +1,25 @@
+# G2, the gate's neon_local tier (LP-0015, NF1 Task 16; design §51 §6.4):
+# Neon's test_runner subset, run once per pinned Postgres major by
+# loams-gate.yml through scripts/loams/gate.sh. scripts/loams/gate-subset.py
+# checks that every name exists (loams-hygiene.yml, on every pull request).
+#
+# A line is a test function, `test_runner/regress/<file>.py::<function>`; all of
+# its parameters run. A known flake is skipped only with an issue:
+#   deselect <pytest node id, with parameters> <https://github.com/... issue URL>
+# Never delete a test to make the gate pass.
+
+# pg_regress through Neon: unsharded and four shards, both reldir formats
+test_runner/regress/test_pg_regress.py::test_pg_regress
+# branching: at an LSN behind the tip, and many branches under pgbench
+test_runner/regress/test_branch_behind.py::test_branch_behind
+test_runner/regress/test_branching.py::test_branching_with_pgbench
+# compute_ctl: the spec, and reconfigure on a running compute
+test_runner/regress/test_compute_reconfigure.py::test_compute_reconfigure
+# import_pgdata (fast_import's path into a timeline)
+test_runner/regress/test_import_pgdata.py::test_pgdata_import_smoke
+# the local file cache
+test_runner/regress/test_lfc_resize.py::test_lfc_resize
+test_runner/regress/test_local_file_cache.py::test_local_file_cache_unlink
+# the walproposer against safekeepers
+test_runner/regress/test_wal_acceptor.py::test_restarts
+test_runner/regress/test_wal_acceptor.py::test_restart_endpoint
