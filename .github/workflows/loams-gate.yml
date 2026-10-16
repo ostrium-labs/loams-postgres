@@ -22,7 +22,8 @@
 # The organisation shares one concurrent-job limit with Loams' CI, so at most
 # two heavy jobs run at once (G1 beside G2's build, then the G2 majors two at a
 # time), the nightly starts at 21:07 UTC, away from Loams' nightly (02:17), and
-# runs of the same caller and tiers queue rather than overlap.
+# only one gate runs per caller and ref (a newer nightly or dispatch cancels
+# the older one; a release's calls queue).
 #
 # A failing tier fails the job `gate` (scripts/loams/gate.py verdict). A known
 # flake is skipped only with a listed issue in gate-subset.txt.
@@ -57,9 +58,12 @@ permissions:
   contents: read
 
 concurrency:
-  # github.workflow is the caller's name when loams-release.yml calls this.
-  group: loams-gate-${{ github.workflow }}-${{ github.ref }}-${{ inputs.tiers || 'nightly' }}
-  cancel-in-progress: false
+  # One gate at a time per caller and ref: the organisation's concurrent-job
+  # limit is shared with Loams' CI. A newer nightly or dispatch cancels the
+  # older one; a release's calls (github.workflow is then the caller's name)
+  # queue and are never cancelled.
+  group: loams-gate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.workflow == 'loams-gate' }}
 
 env:
   TIERS: ${{ inputs.tiers || 'g0,g1,g2' }}
@@ -132,7 +136,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             bison flex libreadline-dev zlib1g-dev libssl-dev libicu-dev libseccomp-dev \
-            pkg-config protobuf-compiler libclang-dev
+            pkg-config protobuf-compiler libprotobuf-dev libclang-dev
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/actionlint.tgz" "$ACTIONLINT_URL"
           echo "$ACTIONLINT_SHA256  $RUNNER_TEMP/actionlint.tgz" | sha256sum -c -
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/deny.tgz" "$CARGO_DENY_URL"
