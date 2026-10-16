@@ -45,3 +45,18 @@ major, `loams/REL_<N>_STABLE` must exist, descend from `REL_<N>_STABLE_neon`, ca
 `SECURITY.md` and `CODEOWNERS`, and refuse force-pushes and deletion. `REL_<N>_STABLE_neon` must
 refuse updates. Every submodule URL must be `../postgres.git`. The tests are
 `scripts/loams/tests/test_postgres_branches.py`.
+
+## Taking an upstream minor
+
+Postgres minors come in by merge, never by rebase (D821). `loams-postgres-merge.yml` does the merge in CI, in a blobless clone inside the job:
+
+```
+gh workflow run loams-postgres-merge.yml --repo ostrium-labs/loams-postgres -f major=17 -f tag=REL_17_11            # try only
+gh workflow run loams-postgres-merge.yml --repo ostrium-labs/loams-postgres -f major=17 -f tag=REL_17_11 -f push=true
+```
+
+1. The merge commit is `Merge REL_<N>_<m> into loams/REL_<N>_STABLE`, with the trailer `Loams-Sync: REL_<N>_<m>`.
+2. With `push`, it goes to `loams/minor-<N>-REL_<N>_<m>`. `vendor/postgres-v<N>` and `vendor/revisions.json` move to it in a pull request here, and the gate (`loams-gate.yml`) runs on that pull request's branch.
+3. Once the gate is green, `promote` fast-forwards `loams/REL_<N>_STABLE` to the merge.
+
+A conflict fails the job and uploads the conflicted files and diff as an artifact. A maintainer then resolves it on `loams/minor-<N>-REL_<N>_<m>` by hand and records each resolution in the merge commit's message. Neon's patched areas are listed in `docs/core_changes.md`.

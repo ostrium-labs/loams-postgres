@@ -1,0 +1,104 @@
+# Merge an upstream Postgres minor into ostrium-labs/postgres (LP-0016, NF1
+# Task 17; design §51 §6.3, D821): scripts/loams/postgres-merge.sh in a
+# blobless clone inside the job, so nothing is cloned on a workstation and
+# every later minor is the same dispatch. NF1 Task 18's nightly tracking
+# calls it too.
+#
+#   gh workflow run loams-postgres-merge.yml --repo ostrium-labs/loams-postgres \
+#     -f major=17 -f tag=REL_17_11 [-f push=true] [-f promote=true]
+#
+# Without push it only tries the merge and reports. With push the merge goes
+# to loams/minor-<major>-<tag> in ostrium-labs/postgres; vendor/postgres-v<major>
+# then moves to it in a pull request here, and the gate runs on that. promote
+# fast-forwards loams/REL_<major>_STABLE to it (after the gate is green).
+# A conflict fails the job and uploads the conflicted files and diff.
+# Pushing needs the organisation secret LOAMS_BOT_TOKEN.
+name: loams-postgres-merge
+
+on:
+  workflow_dispatch:
+    inputs:
+      major:
+        description: "Postgres major (16, 17, 18)"
+        type: string
+        required: true
+      tag:
+        description: "Upstream tag, REL_<major>_<minor>"
+        type: string
+        required: true
+      push:
+        description: "Push the merge to loams/minor-<major>-<tag>"
+        type: boolean
+        default: false
+      promote:
+        description: "Also fast-forward loams/REL_<major>_STABLE to it"
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      major:
+        type: string
+        required: true
+      tag:
+        type: string
+        required: true
+      push:
+        type: boolean
+        default: false
+      promote:
+        type: boolean
+        default: false
+    outputs:
+      sha:
+        value: ${{ jobs.merge.outputs.sha }}
+    secrets:
+      LOAMS_BOT_TOKEN:
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: loams-postgres-merge-${{ inputs.major }}
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      sha: ${{ steps.merge.outputs.sha }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Merge ${{ inputs.tag }} into loams/REL_${{ inputs.major }}_STABLE
+        id: merge
+        env:
+          MAJOR: ${{ inputs.major }}
+          TAG: ${{ inputs.tag }}
+          PUSH: ${{ inputs.push }}
+          PROMOTE: ${{ inputs.promote }}
+          GH_TOKEN: ${{ (inputs.push || inputs.promote) && secrets.LOAMS_BOT_TOKEN || '' }}
+          OUT: ${{ runner.temp }}/postgres-merge
+        run: |
+          set -euo pipefail
+          args=()
+          [ "$PUSH" = true ] && args+=(--push)
+          [ "$PROMOTE" = true ] && args+=(--promote)
+          if [ ${#args[@]} -gt 0 ] && [ -z "$GH_TOKEN" ]; then
+            echo "::error::pushing needs the secret LOAMS_BOT_TOKEN"; exit 1
+          fi
+          status=0
+          scripts/loams/postgres-merge.sh "$MAJOR" "$TAG" "${args[@]}" | tee "$RUNNER_TEMP/merge.log" || status=$?
+          if [ -f "$OUT/sha" ]; then echo "sha=$(cat "$OUT/sha")" >> "$GITHUB_OUTPUT"; fi
+          { echo "### $TAG into loams/REL_${MAJOR}_STABLE"; echo; echo '```'; cat "$RUNNER_TEMP/merge.log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+      - name: The conflicts
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: postgres-merge-${{ inputs.major }}-${{ inputs.tag }}
+          path: ${{ runner.temp }}/postgres-merge/
+          retention-days: 14
+          if-no-files-found: ignore
