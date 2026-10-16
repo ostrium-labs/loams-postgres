@@ -275,12 +275,12 @@ jobs:
         id: index
         run: |
           set -euo pipefail
-          refs=() tags=()
+          refs=() tag_args=()
           for arch in amd64 arm64; do
             refs+=("$IMAGE@$(cat "$RUNNER_TEMP/digests/$PGV-$arch")")
           done
-          for t in $TAGS; do tags+=(-t "$IMAGE:$t"); done
-          docker buildx imagetools create "${tags[@]}" "${refs[@]}"
+          for t in $TAGS; do tag_args+=(-t "$IMAGE:$t"); done
+          docker buildx imagetools create "${tag_args[@]}" "${refs[@]}"
           first=${TAGS%% *}
           digest=$(docker buildx imagetools inspect "$IMAGE:$first" --format '{{json .Manifest}}' | jq -r .digest)
           [[ $digest =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "no index digest for $IMAGE:$first"; exit 1; }
