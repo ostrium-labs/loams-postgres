@@ -74,6 +74,8 @@ jobs:
           python3 -I scripts/loams/tests/test_gate.py
           python3 -I scripts/loams/gate.py subset-check
           python3 -I scripts/loams/gate.py required-checks
+      - name: The Postgres minor merge (NF1 Task 17)
+        run: scripts/loams/tests/test_postgres_merge.sh
       - name: The Postgres fork's branches (NF1 Task 15)
         env:
           # Read-only; the endpoints are public, the token only lifts the rate limit.
