@@ -209,6 +209,34 @@ pub(crate) fn apply_in_neon(
 
             LittleEndian::write_u32(&mut page[offset..offset + 4], *moff);
         }
+        NeonWalRecord::MultixactOffsetCreatePair {
+            mid,
+            moff,
+            next_moff,
+        } => {
+            let (slru_kind, segno, blknum) = key.to_slru_block().context("invalid record")?;
+            assert_eq!(
+                slru_kind,
+                SlruKind::MultiXactOffsets,
+                "MultixactOffsetCreatePair record with unexpected key {key}"
+            );
+            let per_page = pg_constants::MULTIXACT_OFFSETS_PER_PAGE as u32;
+            let pageno = mid / per_page;
+            let entryno = mid % per_page;
+            // The next multixid is on the same page (the ingest checks it).
+            assert!(
+                entryno + 1 < per_page,
+                "MultixactOffsetCreatePair record for the last multi-xid {mid} of a page"
+            );
+            assert!(
+                segno == pageno / pg_constants::SLRU_PAGES_PER_SEGMENT
+                    && blknum == pageno % pg_constants::SLRU_PAGES_PER_SEGMENT,
+                "MultixactOffsetCreatePair record for multi-xid {mid} with unexpected key {key}"
+            );
+            let offset = (entryno * 4) as usize;
+            LittleEndian::write_u32(&mut page[offset..offset + 4], *moff);
+            LittleEndian::write_u32(&mut page[offset + 4..offset + 8], *next_moff);
+        }
         NeonWalRecord::MultixactMembersCreate { moff, members } => {
             let (slru_kind, segno, blknum) = key.to_slru_block().context("invalid record")?;
             assert_eq!(
@@ -278,4 +306,78 @@ pub(crate) fn apply_in_neon(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use byteorder::{ByteOrder, LittleEndian};
+    use bytes::BytesMut;
+    use pageserver_api::key::slru_block_to_key;
+    use pageserver_api::reltag::SlruKind;
+    use postgres_ffi::{BLCKSZ, pg_constants};
+    use utils::lsn::Lsn;
+    use wal_decoder::models::record::NeonWalRecord;
+
+    use super::apply_in_neon;
+
+    fn offsets_page(mid: u32) -> (pageserver_api::key::Key, BytesMut) {
+        let pageno = mid / pg_constants::MULTIXACT_OFFSETS_PER_PAGE as u32;
+        let key = slru_block_to_key(
+            SlruKind::MultiXactOffsets,
+            pageno / pg_constants::SLRU_PAGES_PER_SEGMENT,
+            pageno % pg_constants::SLRU_PAGES_PER_SEGMENT,
+        );
+        let mut page = BytesMut::new();
+        page.resize(BLCKSZ as usize, 0);
+        (key, page)
+    }
+
+    fn entry(page: &[u8], mid: u32) -> u32 {
+        let e = (mid % pg_constants::MULTIXACT_OFFSETS_PER_PAGE as u32) as usize * 4;
+        LittleEndian::read_u32(&page[e..e + 4])
+    }
+
+    /// LP-0016: the pair record sets this multixid's offset and the next one's,
+    /// as RecordNewMultiXact does since Postgres 16.15 and 17.11.
+    #[test]
+    fn multixact_offset_create_pair_sets_next_offset() {
+        let mid = 4097; // page 2 of the offsets SLRU, not its last entry
+        let (key, mut page) = offsets_page(mid);
+        let rec = NeonWalRecord::MultixactOffsetCreatePair {
+            mid,
+            moff: 100,
+            next_moff: 103,
+        };
+        apply_in_neon(&rec, Lsn(0x10), key, &mut page).unwrap();
+        assert_eq!(entry(&page, mid), 100);
+        assert_eq!(entry(&page, mid + 1), 103);
+        assert_eq!(entry(&page, mid + 2), 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "last multi-xid")]
+    fn multixact_offset_create_pair_refuses_the_last_entry() {
+        let mid = 2 * pg_constants::MULTIXACT_OFFSETS_PER_PAGE as u32 - 1;
+        let (key, mut page) = offsets_page(mid);
+        let rec = NeonWalRecord::MultixactOffsetCreatePair {
+            mid,
+            moff: 1,
+            next_moff: 2,
+        };
+        let _ = apply_in_neon(&rec, Lsn(0x10), key, &mut page);
+    }
+
+    /// The new variant does not move the serialized index of the existing
+    /// records (stored in layer files).
+    #[test]
+    fn multixact_offset_create_keeps_its_serialized_tag() {
+        use utils::bin_ser::BeSer;
+        let old = NeonWalRecord::MultixactOffsetCreate { mid: 1, moff: 2 };
+        assert_eq!(&old.ser().unwrap()[0..4], &[0, 0, 0, 4]);
+        let ts = NeonWalRecord::TruncateVisibilityMap {
+            trunc_byte: 0,
+            trunc_offs: 0,
+        };
+        assert_eq!(&ts.ser().unwrap()[0..4], &[0, 0, 0, 7]);
+    }
 }

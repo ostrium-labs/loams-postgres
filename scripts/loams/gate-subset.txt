@@ -23,6 +23,8 @@ test_runner/regress/test_local_file_cache.py::test_local_file_cache_unlink
 # visibility-map clears read back through the pageserver (NF1 Task 17, docs/loams/pg17-vm-clear.md)
 test_runner/regress/test_vm_bits.py::test_vm_bit_clear
 test_runner/regress/test_loams_vm_clear.py::test_loams_vm_clear_without_vm_block_reference
+# multixacts through the pageserver (16.15 and 17.11 set the next multixid's offset, LP-0016)
+test_runner/regress/test_multixact.py::test_multixact
 # the walproposer against safekeepers
 test_runner/regress/test_wal_acceptor.py::test_restarts
 test_runner/regress/test_wal_acceptor.py::test_restart_endpoint
