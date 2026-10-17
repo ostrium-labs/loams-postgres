@@ -116,6 +116,8 @@ postgres-install-%: postgres-configure-% \
 	$(MAKE) -C $(BUILD_DIR)/$*/contrib/pg_trgm install
 	$(MAKE) -C $(BUILD_DIR)/$*/contrib/amcheck install
 	$(MAKE) -C $(BUILD_DIR)/$*/contrib/test_decoding install
+	# pg_walinspect (15 and later): test_loams_vm_clear.py checks the heap records' block references (LP-0016)
+	if [ -d $(BUILD_DIR)/$*/contrib/pg_walinspect ]; then $(MAKE) -C $(BUILD_DIR)/$*/contrib/pg_walinspect install; fi
 
 .PHONY: FORCE
 FORCE:

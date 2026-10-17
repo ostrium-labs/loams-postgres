@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
-"""Check the Postgres fork's branch layout (LP-0014, NF1 Task 15).
+"""Check the Postgres fork's branch layout (LP-0014, NF1 Task 15; recut in
+LP-0016, NF1 Task 17).
 
-    check-postgres-branches.py [--repo ostrium-labs/postgres] [--majors 16,17,18]
+    check-postgres-branches.py [--repo ostrium-labs/postgres] [--majors 16,17]
                                [--gitmodules .gitmodules] [--offline]
 
 For each major N (docs/loams/postgres-branches.md):
 
-- branches_exist_and_protected: `loams/REL_<N>_STABLE` exists in the fork,
-  descends from the frozen `REL_<N>_STABLE_neon` (nothing of Neon's history
-  is dropped), carries SECURITY.md and CODEOWNERS, and the rulesets in force
-  on it refuse force-pushes and deletion; `REL_<N>_STABLE_neon` refuses
-  updates (frozen history, D821).
+- branches_exist_and_protected: `loams/pg<N>` exists in the fork, descends
+  from the revision main pinned before the recut (BASES), carries SECURITY.md
+  and CODEOWNERS, and the rulesets in force on it refuse force-pushes and
+  deletion. The retired `loams/REL_<N>_STABLE` (16, 17, 18) are still there
+  and undeletable, and `REL_<N>_STABLE_neon` refuses updates (frozen history,
+  D821).
 - submodule_url_relative: every submodule in `.gitmodules` uses
   `../postgres.git`, so a checkout of `ostrium-labs/loams-postgres` resolves
-  to `ostrium-labs/postgres`.
+  to `ostrium-labs/postgres`; the maintained majors track `loams/pg<N>`.
 
 `--offline` runs the `.gitmodules` check only. The GitHub API is read with
 GH_TOKEN or GITHUB_TOKEN when set (the endpoints are public). Exit codes: 0
@@ -65,25 +67,47 @@ def rule_types(get, repo, branch):
     return {r.get("type") for r in rules}
 
 
+# The revisions loams/pg<N> start from: the ones ostrium-labs/loams-postgres
+# main pinned in vendor/revisions.json before the recut (NF1 Task 17, owner
+# 2026-10-17), whose pgxn/neon matches them.
+BASES = {
+    16: "a42351fcd41ea01edede1daed65f651e838988fc",
+    17: "1e01fcea2a6b38180021aa83e0051d95286d9096",
+}
+# Retired, never deleted: Task 15's branches from Neon's REL_<N>_STABLE_neon
+# heads, which need pgxn/neon changes Neon never published.
+RETIRED = (16, 17, 18)
+
+
 def check_branches(get, repo, majors):
     """Findings for the branches of `majors` in `repo`, through `get(path)`."""
     out = []
     for n in majors:
-        ours, neon = f"loams/REL_{n}_STABLE", f"REL_{n}_STABLE_neon"
+        ours = f"loams/pg{n}"
+        base = BASES.get(n)
+        if base is None:
+            out.append(f"{ours}: no pinned base revision for Postgres {n}")
+            continue
         if get(f"/repos/{repo}/branches/{q(ours)}") is None:
             out.append(f"{ours}: missing in {repo}")
             continue
-        cmp = get(f"/repos/{repo}/compare/{q(neon)}...{q(ours)}")
+        cmp = get(f"/repos/{repo}/compare/{base}...{q(ours)}")
         if cmp is None:
-            out.append(f"{ours}: cannot compare with {neon}")
+            out.append(f"{ours}: cannot compare with {base[:8]}")
         elif cmp.get("behind_by", 0) != 0:
-            out.append(f"{ours}: does not descend from {neon} ({cmp.get('behind_by')} commits behind)")
+            out.append(f"{ours}: does not descend from {base[:8]} ({cmp.get('behind_by')} commits behind)")
         for name in REQUIRED_FILES:
             if get(f"/repos/{repo}/contents/{q(name)}?ref={q(ours)}") is None:
                 out.append(f"{ours}: no {name}")
         missing = {"non_fast_forward", "deletion"} - rule_types(get, repo, ours)
         if missing:
             out.append(f"{ours}: not protected against {', '.join(sorted(missing))}")
+    for n in RETIRED:
+        old, neon = f"loams/REL_{n}_STABLE", f"REL_{n}_STABLE_neon"
+        if get(f"/repos/{repo}/branches/{q(old)}") is None:
+            out.append(f"{old}: retired branches are kept, but it is missing")
+        elif "deletion" not in rule_types(get, repo, old):
+            out.append(f"{old}: retired, but not protected against deletion")
         frozen = {"update", "non_fast_forward", "deletion"} - rule_types(get, repo, neon)
         if frozen:
             out.append(f"{neon}: not frozen ({', '.join(sorted(frozen))} allowed)")
@@ -105,13 +129,19 @@ def check_gitmodules(text):
         url = cp[s].get("url", "").strip()
         if url != SUBMODULE_URL:
             out.append(f".gitmodules: {s} has url {url!r}, not {SUBMODULE_URL!r}")
+        # The majors we maintain track their loams/pg<N> branch.
+        major = s.rsplit("postgres-v", 1)[-1].strip('"')
+        if major.isdigit() and int(major) in BASES:
+            branch = cp[s].get("branch", "").strip()
+            if branch != f"loams/pg{major}":
+                out.append(f".gitmodules: {s} tracks {branch!r}, not 'loams/pg{major}'")
     return out
 
 
 def main(argv):
     ap = argparse.ArgumentParser(prog="check-postgres-branches.py", description=__doc__.split("\n\n")[0])
     ap.add_argument("--repo", default="ostrium-labs/postgres")
-    ap.add_argument("--majors", default="16,17,18")
+    ap.add_argument("--majors", default="16,17")
     ap.add_argument("--gitmodules", default=".gitmodules")
     ap.add_argument("--offline", action="store_true", help="check .gitmodules only")
     a = ap.parse_args(argv)
@@ -132,7 +162,7 @@ def main(argv):
         print(f"check-postgres-branches: {f}", file=sys.stderr)
     if findings:
         return 1
-    what = ".gitmodules" if a.offline else f".gitmodules and {a.repo} loams/REL_{{{a.majors}}}_STABLE"
+    what = ".gitmodules" if a.offline else f".gitmodules and {a.repo} loams/pg{{{a.majors}}}"
     print(f"check-postgres-branches: ok ({what})")
     return 0
 

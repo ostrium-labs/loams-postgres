@@ -47,6 +47,18 @@ pub enum NeonWalRecord {
         trunc_byte: usize,
         trunc_offs: usize,
     },
+    /// Set a multixid's starting offset and, on the same multixact-offsets page,
+    /// the next multixid's starting offset (the end of this multixid's members).
+    /// Postgres 16.15 and 17.11 set both in RecordNewMultiXact (upstream
+    /// 8ba61bc0, "Set next multixid's offset when creating a new multixid"), and
+    /// a reader no longer waits for the next multixid to be created (LP-0016).
+    /// Added before `Test`, so the serialized index of every earlier variant is
+    /// unchanged.
+    MultixactOffsetCreatePair {
+        mid: MultiXactId,
+        moff: MultiXactOffset,
+        next_moff: MultiXactOffset,
+    },
 
     /// A testing record for unit testing purposes. It supports append data to an existing image, or clear it.
     #[cfg(feature = "testing")]
