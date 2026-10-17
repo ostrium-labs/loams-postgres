@@ -44,11 +44,11 @@ pub fn line_in_file(path: &Path, line: &str) -> Result<bool> {
     Ok(true)
 }
 
-/// Create or completely rewrite configuration file specified by `path`
-#[allow(clippy::too_many_arguments)]
 /// The logical decoding output plugins a compute trusts (LP-0016, NF1 Task 17).
 const LOAMS_OUTPUT_PLUGIN_LIBRARIES: &str = "pgoutput, test_decoding, wal2json";
 
+/// Create or completely rewrite configuration file specified by `path`
+#[allow(clippy::too_many_arguments)]
 pub fn write_postgres_conf(
     pgdata_path: &Path,
     params: &ComputeNodeParams,
