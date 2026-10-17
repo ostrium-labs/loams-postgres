@@ -49,6 +49,22 @@ cd "$work"
 git fetch -q --filter=blob:none --no-tags "$upstream" "refs/tags/$tag:refs/tags/$tag"
 echo "$branch: $(git rev-parse --short HEAD); $tag: $(git rev-parse --short "$tag^{commit}")"
 
+# A minor branch that already holds the tag (an earlier run, or a maintainer's
+# hand resolution of a conflict) is the merge: reuse it, never re-merge, so a
+# later --promote fast-forwards to exactly what the gate tested.
+if git "${auth[@]}" fetch -q --filter=blob:none origin "+refs/heads/$minor:refs/remotes/origin/$minor" 2>/dev/null &&
+   git merge-base --is-ancestor HEAD "origin/$minor" && git merge-base --is-ancestor "$tag" "origin/$minor"; then
+  git reset -q --hard "origin/$minor"
+  sha=$(git rev-parse HEAD)
+  echo "$sha" > "$out/sha"
+  echo "$minor already holds $tag: $sha"
+  if $promote; then
+    git "${auth[@]}" push -q origin "HEAD:refs/heads/$branch"
+    echo "fast-forwarded $branch to $sha"
+  fi
+  exit 0
+fi
+
 if git merge-base --is-ancestor "$tag" HEAD; then
   echo "$tag is already in $branch"
   git rev-parse HEAD > "$out/sha"

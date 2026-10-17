@@ -5,7 +5,8 @@
 #   clean_merge_pushes_minor_branch   the merge carries Loams-Sync and goes to loams/minor-17-<tag>
 #   already_merged_is_a_no_op
 #   conflict_lists_files              a conflicting minor fails and lists the file
-#   promote_fast_forwards             --promote moves loams/REL_17_STABLE to the merge
+#   promote_fast_forwards             --promote moves loams/REL_17_STABLE to the merge already on the minor branch
+#   hand_resolution_is_reused         a minor branch resolved by hand is promoted as is, not re-merged
 #   bad_tag_refused
 # Run: scripts/loams/tests/test_postgres_merge.sh
 set -euo pipefail
@@ -56,7 +57,7 @@ if run 17 REL_17_11 --promote && [ "$(git -C "$tmp/fork" rev-parse loams/REL_17_
   ok promote_fast_forwards
 else fail promote_fast_forwards "$(cat "$tmp/log")"; fi
 
-if run 17 REL_17_11 && grep -q 'already in' "$tmp/log"; then ok already_merged_is_a_no_op
+if run 17 REL_17_11 && grep -q 'already' "$tmp/log"; then ok already_merged_is_a_no_op
 else fail already_merged_is_a_no_op "$(cat "$tmp/log")"; fi
 
 setup conflict
@@ -64,6 +65,18 @@ if run 17 REL_17_11 --push; then fail conflict_lists_files "merged a conflict"
 elif grep -qx smgr.c "$tmp/out/conflicts.txt" && ! git -C "$tmp/fork" rev-parse -q --verify loams/minor-17-REL_17_11 > /dev/null; then
   ok conflict_lists_files
 else fail conflict_lists_files "$(cat "$tmp/log")"; fi
+
+# A conflicting minor resolved by hand on loams/minor-17-REL_17_11 is reused by --promote.
+setup conflict
+git clone -q -b loams/REL_17_STABLE "$tmp/fork" "$tmp/w"
+( cd "$tmp/w"; git fetch -q "$tmp/up" refs/tags/REL_17_11:refs/tags/REL_17_11
+  git merge -q REL_17_11 > /dev/null 2>&1 || true
+  printf 'a\nRESOLVED\nc\n' > smgr.c; git add smgr.c; git commit -q -m "Merge REL_17_11 (resolved by hand)"
+  git push -q origin HEAD:refs/heads/loams/minor-17-REL_17_11 )
+hand=$(git -C "$tmp/w" rev-parse HEAD); rm -rf "$tmp/w"
+if run 17 REL_17_11 --promote && [ "$(git -C "$tmp/fork" rev-parse loams/REL_17_STABLE)" = "$hand" ]; then
+  ok hand_resolution_is_reused
+else fail hand_resolution_is_reused "$(cat "$tmp/log")"; fi
 
 if run 17 REL_16_15; then fail bad_tag_refused "accepted REL_16_15 for 17"; else ok bad_tag_refused; fi
 
