@@ -4,18 +4,18 @@
 #
 #   postgres-merge.sh MAJOR TAG [--push] [--promote]
 #
-# 1. A blobless clone of ostrium-labs/postgres at loams/REL_<MAJOR>_STABLE (blobs
+# 1. A blobless clone of ostrium-labs/postgres at loams/pg<MAJOR> (blobs
 #    come on demand; nothing else is fetched).
 # 2. The tag REL_<MAJOR>_<m> from postgres/postgres.
-# 3. `git merge --no-ff` with the message "Merge <TAG> into loams/REL_<MAJOR>_STABLE"
+# 3. `git merge --no-ff` with the message "Merge <TAG> into loams/pg<MAJOR>"
 #    and the trailer `Loams-Sync: <TAG>` (the plan's patch-trailer contract).
 #    A conflict stops here: the files and the conflicted diff go to
 #    $OUT (default ./postgres-merge), for a maintainer to resolve on the branch
 #    by hand, with each resolution recorded in the merge commit's message.
-# 4. --push: the merge goes to loams/minor-<MAJOR>-<TAG> (a new branch; never a
+# 4. --push: the merge goes to loams/minor-pg<MAJOR>-<TAG> (a new branch; never a
 #    force-push). The submodule in vendor/postgres-v<MAJOR> can then move to it,
 #    and the gate runs on that.
-# 5. --promote: loams/REL_<MAJOR>_STABLE is fast-forwarded to that branch
+# 5. --promote: loams/pg<MAJOR> is fast-forwarded to that branch
 #    (the rulesets refuse anything but a fast-forward).
 # Pushes need GH_TOKEN with contents: write on ostrium-labs/postgres
 # (LOAMS_BOT_TOKEN). Writes the merge commit's sha to $OUT/sha.
@@ -32,8 +32,8 @@ done
 fork=${FORK_POSTGRES:-ostrium-labs/postgres}
 fork_url=${FORK_POSTGRES_URL:-https://github.com/$fork.git}
 upstream=${UPSTREAM_POSTGRES:-https://github.com/postgres/postgres.git}
-branch=loams/REL_${major}_STABLE
-minor=loams/minor-${major}-${tag}
+branch=loams/pg${major}
+minor=loams/minor-pg${major}-${tag}
 out=$(realpath -m "${OUT:-postgres-merge}")
 work=${WORK:-${RUNNER_TEMP:-$PWD}/postgres-$major}
 mkdir -p "$out"

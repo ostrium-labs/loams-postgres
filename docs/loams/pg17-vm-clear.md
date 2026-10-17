@@ -15,7 +15,7 @@ Heap records that clear VM bits (insert, delete, update, lock) did not register 
 
 ## Why neither can happen in Neon's storage model
 
-The fork writes heap inserts, deletes, updates, multi-inserts and locks as its own `RM_NEON_ID` records (`vendor/postgres-v17/src/backend/access/heap/heapam.c`; at `loams/REL_17_STABLE` they are the `XLogInsert(RM_NEON_ID, …)` calls at lines 2216, 2633, 3143, 3903, 5242, 6317 and 9179). Each record carries the `XLH_*_ALL_VISIBLE_CLEARED` and `XLH_LOCK_ALL_FROZEN_CLEARED` flags. Storage does not rely on block references to find VM changes. Four mechanisms cover it:
+The fork writes heap inserts, deletes, updates, multi-inserts and locks as its own `RM_NEON_ID` records (`vendor/postgres-v17/src/backend/access/heap/heapam.c`; at the 17.11 merge `aef0fc52` they are the `XLogInsert(RM_NEON_ID, …)` calls at lines 2216, 2635, 3145, 3905, 5244, 6319 and 9184). Each record carries the `XLH_*_ALL_VISIBLE_CLEARED` and `XLH_LOCK_ALL_FROZEN_CLEARED` flags. Storage does not rely on block references to find VM changes. Four mechanisms cover it:
 
 1. **The pageserver derives the VM clear from the record's flags.**
    - `libs/wal_decoder/src/decoder.rs`, `decode_neonmgr_record` (line 499): `XLOG_NEON_HEAP_INSERT` (`XLH_INSERT_ALL_VISIBLE_CLEARED`, line 523), `DELETE` (line 529), `UPDATE`/`HOT_UPDATE` (old and new page, lines 539 and 542), `MULTI_INSERT` (line 562) and `LOCK` (`XLH_LOCK_ALL_FROZEN_CLEARED`, line 568, clearing all-frozen only).
@@ -35,13 +35,19 @@ The fork writes heap inserts, deletes, updates, multi-inserts and locks as its o
 
 Neon does not take incremental base backups (`pg_basebackup --incremental`) of a compute, because a compute has no durable data directory.
 
-## How the 17.11 merge must be resolved (option (a))
+## How the 17.11 merge was resolved (option (a))
 
-- **`heapam.c`.** Every heap record the fork writes keeps its 17.8 layout: no `HEAP_*_BLKREF_VM` registration and no `PageSetLSN` of the VM buffer for the record. This applies to the `RM_NEON_ID` records and to `XLOG_HEAP2_LOCK_UPDATED`.
-  - Some of upstream's additions merge without a conflict and must be removed by hand: the VM registration in `heap_lock_tuple`'s `XLOG_NEON_HEAP_LOCK` path, and the VM `PageSetLSN` in `heap_multi_insert`.
-  - The decoder takes the old heap block of an update from `decoded.blocks.last()` (`decoder.rs`, line 540). An extra VM block in a record would therefore be read as the old heap block and clear the wrong VM bits.
-- **The redo side.** `heapam_xlog.c` and `neon_rmgr` keep reading the records without a VM block. Upstream's VM handling in redo must not require a block reference that the fork's records do not carry.
-- **Keep the rest of upstream's fix:** the visibility-map locking around the critical section, and the block-reference macros, which do no harm.
+The merge is `aef0fc52` on `loams/minor-pg17-REL_17_11`, onto `loams/pg17`.
+
+- **`heapam.c` without the fix.** `src/backend/access/heap/heapam.c` is a three-way merge of ours with REL_17_11's `heapam.c` minus `c0d9864f`, whose `heapam.c` change reverses cleanly; no later 17.11 commit touches the file. So:
+  - every heap record the fork writes keeps its 17.5 layout: the `RM_NEON_ID` records and `XLOG_HEAP2_LOCK_UPDATED`, with no `*_BLKREF_VM` registration and no VM `PageSetLSN`;
+  - heap redo keeps reading the records that way;
+  - this also drops the two additions that would otherwise merge into the fork's paths without a conflict: the VM registration in `heap_lock_tuple`'s `XLOG_NEON_HEAP_LOCK` path, and the VM `PageSetLSN` in `heap_multi_insert`. They matter because the decoder takes the old heap block of an update from `decoded.blocks.last()` (`decoder.rs`, line 540), so an extra VM block in a record would be read as the old heap block. The pageserver also stores one record per key and LSN, so a VM block reference plus the derived clear would collide.
+- **Upstream's tests of the registration are reverted with it:** `pg_walsummary` `t/002_blocks.pl`'s VM block, and `pg_combinebackup` `t/012_vm_consistency.pl` (`06721343`).
+- **Kept from upstream:**
+  - `7edec8b5`'s block-reference macros, which have the same values as the bare integers;
+  - `visibilitymap_clear_locked()`;
+  - `pg_surgery`'s use of it, which writes full-page images.
 
 ## The test
 
@@ -55,4 +61,4 @@ Neon does not take incremental base backups (`pg_basebackup --incremental`) of a
    - on a hot-standby replica.
 4. **A guard on the record format.** No WAL record whose block 0 is a heap page of those tables also registers a VM-fork block (`pg_get_wal_block_info`). This fails if a merge brings upstream's extra block reference into the fork's records.
 
-It passes on today's 16 and 17 trees, and it must pass at 17.11 before `loams/REL_17_STABLE` is promoted.
+It runs at 16.15 and 17.11 in the gate on the recut branches, and it must pass before `loams/pg17` is promoted.
