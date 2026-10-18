@@ -154,6 +154,64 @@ class Verdict(unittest.TestCase):
         self.assertEqual(run("verdict", "--tiers", "g9", "--needs", ok), 2)
 
 
+class ExecCheck(unittest.TestCase):
+    WORKFLOW = (
+        "jobs:\n"
+        "  a:\n"
+        "    steps:\n"
+        "      - name: inline\n"
+        "        run: scripts/inline.sh \"$KEY\"\n"
+        "      - run: |\n"
+        "          set -euo pipefail\n"
+        "          ./scripts/block.sh x\n"
+        "          python3 -I scripts/interpreted.py\n"
+        "      - uses: actions/cache@v4\n"
+        "        with:\n"
+        "          key: ${{ hashFiles('scripts/not-run.sh') }}\n"
+        "on:\n"
+        "  pull_request:\n"
+        "    paths:\n"
+        "      - scripts/also-not-run.sh\n"
+    )
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / ".github" / "workflows").mkdir(parents=True)
+        (self.root / ".github" / "workflows" / "w.yml").write_text(self.WORKFLOW)
+        (self.root / "scripts").mkdir()
+        for name in ("inline.sh", "block.sh"):
+            f = self.root / "scripts" / name
+            f.write_text("#!/bin/sh\n")
+            f.chmod(0o755)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_only_scripts_run_by_path(self):
+        self.assertEqual(
+            [p for _, p in gate.direct_scripts(self.WORKFLOW)],
+            ["scripts/inline.sh", "scripts/block.sh"],
+        )
+
+    def test_workflow_scripts_executable(self):
+        self.assertEqual(gate.exec_problems(self.root), [])
+
+    def test_a_script_without_its_mode_bit_fails(self):
+        # lp-2026.11.0: gate-g3.sh lost its mode and G3 exited 126.
+        (self.root / "scripts" / "block.sh").chmod(0o644)
+        problems = gate.exec_problems(self.root)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("w.yml:8: scripts/block.sh is not executable", problems[0])
+
+    def test_a_missing_script_fails(self):
+        (self.root / "scripts" / "inline.sh").unlink()
+        self.assertEqual(gate.exec_problems(self.root), [".github/workflows/w.yml:5: scripts/inline.sh does not exist"])
+
+    def test_the_repository_workflows(self):
+        self.assertEqual(gate.exec_problems(REPO_ROOT), [])
+
+
 class RequiredChecks(unittest.TestCase):
     def rules(self, *contexts):
         return [

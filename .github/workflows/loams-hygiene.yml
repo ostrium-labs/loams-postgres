@@ -66,13 +66,14 @@ jobs:
         run: python3 -I scripts/loams/tests/test_release.py
       - name: The SBOM cut for attest-sbom
         run: python3 -I scripts/loams/tests/test_slim_sbom.py
-      - name: The gate's bookkeeping, G2's subset and main's required checks (NF1 Task 16)
+      - name: The gate's bookkeeping, G2's subset, the workflows' script modes and main's required checks (NF1 Task 16)
         env:
           # Read-only; the rules endpoint is public, the token only lifts the rate limit.
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           python3 -I scripts/loams/tests/test_gate.py
           python3 -I scripts/loams/gate.py subset-check
+          python3 -I scripts/loams/gate.py exec-check
           python3 -I scripts/loams/gate.py required-checks
       - name: The Postgres minor merge (NF1 Task 17)
         run: scripts/loams/tests/test_postgres_merge.sh

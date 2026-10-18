@@ -29,6 +29,7 @@ The gate does not run on pull requests (owner, 2026-10-16). A pull request into 
 - **A failing tier fails the job `gate`.** `gate.py verdict` fails the gate when a job of a requested tier failed, was cancelled, or was skipped.
 - **A known flake is skipped only with an issue.** Add `deselect <node id> <issue URL>` to `gate-subset.txt`. Never delete a test.
 - **Every name in the subset must exist.** `gate.py subset-check` runs on every pull request, in `loams-hygiene`.
+- **Every script a workflow runs by path is executable.** `gate.py exec-check` runs on every pull request, in `loams-hygiene`: a script without its mode bit fails its step with exit code 126 (G3 of the first lp-2026.11.0 run).
 - **Runners.** Every job runs on a standard GitHub-hosted runner, or on `vars.RUNNER_HEAVY` for G1 and G2.
   - At most two heavy jobs run at once: G1 beside G2's build, then the G2 majors two at a time.
   - The organisation's concurrent-job limit is shared with Loams' CI.
