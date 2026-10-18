@@ -1699,7 +1699,7 @@ RUN --mount=type=cache,uid=1000,target=/home/nonroot/.cargo/registry \
         *) echo "Unsupported architecture: $arch" && exit 1 ;; \
     esac && \
     mkdir -p /tmp/cargo-about && \
-    curl -fsSL -o /tmp/cargo-about.tgz \
+    curl -fsSL --retry 5 --retry-all-errors --connect-timeout 30 -o /tmp/cargo-about.tgz \
         "https://github.com/EmbarkStudios/cargo-about/releases/download/${CARGO_ABOUT_VERSION}/cargo-about-${CARGO_ABOUT_VERSION}-${arch}-unknown-linux-musl.tar.gz" && \
     echo "$sha  /tmp/cargo-about.tgz" | sha256sum -c - && \
     tar -xzf /tmp/cargo-about.tgz -C /tmp/cargo-about --strip-components=1 && \
