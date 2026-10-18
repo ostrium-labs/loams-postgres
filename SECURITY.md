@@ -14,7 +14,7 @@ open this repository's **Security** tab and choose **Report a vulnerability**
 ([direct link](https://github.com/ostrium-labs/loams-postgres/security/advisories/new)).
 Only you and the maintainers can see the report.
 
-If you cannot use GitHub, email **security@ostriumlabs.com**.
+If you cannot use GitHub, email **security@ostriumlabs.org**.
 
 We acknowledge a report within **3 business days**, keep you updated while we
 investigate, agree on a disclosure timeline with you, and credit you in the
