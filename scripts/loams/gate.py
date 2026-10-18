@@ -6,6 +6,7 @@
     gate.py tiers   --tiers g0,g1,g2
     gate.py verdict --tiers g0,g1,g2 --needs '<the needs context as JSON>'
     gate.py required-checks [--repo ostrium-labs/loams-postgres] [--branch main]
+    gate.py exec-check [--root .]
 
 subset-check: every test in G2's subset exists. A line names a test function,
 `test_runner/regress/<file>.py::<function>`; the file must define it at module
@@ -32,6 +33,12 @@ G0 to G3 are not among them: they do not run on pull requests (owner,
 2026-10-16), and gate releases instead. It reads the public rules endpoint,
 with GH_TOKEN or GITHUB_TOKEN when set.
 
+exec-check (workflow_scripts_executable): every repository script a workflow's
+`run:` executes by path (a command line starting with `scripts/` or
+`./scripts/`) exists and has its executable bit. Without it the step fails
+with exit code 126; G3 did, in the lp-2026.11.0 release, after a later commit
+dropped gate-g3.sh's mode.
+
 Exit codes: 0 ok, 1 a finding (or a red gate), 2 usage. Stdlib only.
 """
 
@@ -50,6 +57,8 @@ TIERS = ("g0", "g1", "g2", "g3")
 REQUIRED_CHECKS = ("hygiene", "patches", "dco")
 API = "https://api.github.com"
 TEST_RE = re.compile(r"^(test_runner/regress/[A-Za-z0-9_]+\.py)::(test_[A-Za-z0-9_]+)$")
+RUN_RE = re.compile(r"^(\s*)(?:-\s+)?run:\s*(.*)$")
+SCRIPT_RE = re.compile(r"^(?:\./)?(scripts/[A-Za-z0-9_./-]+)")
 ISSUE_RE = re.compile(r"^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/issues/[0-9]+$")
 
 
@@ -145,6 +154,50 @@ def verdict(tiers, needs):
     return problems
 
 
+def direct_scripts(text):
+    """(line number, path) of each repository script a workflow's `run:` executes by path.
+
+    A `run:` value is either inline or a block scalar (`|`, `>`): the lines
+    indented deeper than the key. Each of its lines that starts with
+    `scripts/` or `./scripts/` runs that file directly, so needs its mode bit.
+    """
+    found = []
+    lines = text.splitlines()
+    i = 0
+    while i < len(lines):
+        m = RUN_RE.match(lines[i])
+        i += 1
+        if not m:
+            continue
+        indent, value = len(m.group(1)), m.group(2).strip()
+        if value and value[0] not in "|>":
+            body = [(i, value)]
+        else:
+            body = []
+            while i < len(lines) and (not lines[i].strip() or len(lines[i]) - len(lines[i].lstrip()) > indent):
+                body.append((i + 1, lines[i].strip()))
+                i += 1
+        for no, cmd in body:
+            s = SCRIPT_RE.match(cmd)
+            if s:
+                found.append((no, s.group(1)))
+    return found
+
+
+def exec_problems(root):
+    """Each direct script invocation in root's workflows whose file is missing or not executable."""
+    problems = []
+    for wf in sorted((root / ".github" / "workflows").glob("*.y*ml")):
+        for no, rel in direct_scripts(wf.read_text(encoding="utf-8")):
+            path = root / rel
+            where = f"{wf.relative_to(root)}:{no}"
+            if not path.is_file():
+                problems.append(f"{where}: {rel} does not exist")
+            elif not path.stat().st_mode & 0o111:
+                problems.append(f"{where}: {rel} is not executable (git update-index --chmod=+x {rel})")
+    return problems
+
+
 def github(path):
     req = urllib.request.Request(API + path, headers={"Accept": "application/vnd.github+json",
                                                       "X-GitHub-Api-Version": "2022-11-28"})
@@ -180,6 +233,8 @@ def main(argv):
     s = sub.add_parser("verdict")
     s.add_argument("--tiers", required=True)
     s.add_argument("--needs", required=True)
+    s = sub.add_parser("exec-check")
+    s.add_argument("--root", default=".")
     s = sub.add_parser("required-checks")
     s.add_argument("--repo", default="ostrium-labs/loams-postgres")
     s.add_argument("--branch", default="main")
@@ -192,6 +247,13 @@ def main(argv):
                 print(f"{a.repo} {a.branch}: not required: {', '.join(missing)}", file=sys.stderr)
                 return 1
             print(f"required checks on {a.repo} {a.branch}: ok ({', '.join(REQUIRED_CHECKS)})")
+            return 0
+        if a.cmd == "exec-check":
+            problems = exec_problems(Path(a.root))
+            if problems:
+                print("\n".join(problems), file=sys.stderr)
+                return 1
+            print("workflow scripts: ok (every script a run: executes by path is executable)")
             return 0
         if a.cmd in ("subset-check", "subset-args"):
             root = Path(a.root)
