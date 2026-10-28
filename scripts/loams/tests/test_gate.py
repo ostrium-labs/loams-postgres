@@ -154,6 +154,109 @@ class Verdict(unittest.TestCase):
         self.assertEqual(run("verdict", "--tiers", "g9", "--needs", ok), 2)
 
 
+PINS = """
+schema = 1
+[majors]
+supported = [17]
+beta = [18]
+maintenance = [16]
+default = 17
+"""
+REVISIONS = {"v18": ["18.6", "a" * 40], "v17": ["17.11", "b" * 40], "v16": ["16.15", "c" * 40],
+             "v15": ["15.13", "d" * 40], "v14": ["14.18", "e" * 40]}
+
+
+class Legs(unittest.TestCase):
+    """G2's legs and the upgrade job from Loams' pin file (NF2 Task 7, D1118)."""
+
+    def plan(self, pins=PINS, revisions=REVISIONS, own=()):
+        return gate.legs(pins, revisions, own)
+
+    def test_gate_legs_follow_pins(self):
+        p = self.plan()
+        self.assertEqual([(l["major"], l["status"]) for l in p["legs"]],
+                         [("16", "maintenance"), ("17", "supported"), ("18", "beta")])
+        # 14 and 15 are vendored but no longer pinned: no leg.
+        two = self.plan(pins=PINS.replace("beta = [18]", "beta = []"), revisions={k: REVISIONS[k] for k in ("v16", "v17")})
+        self.assertEqual([l["major"] for l in two["legs"]], ["16", "17"])
+        promoted = self.plan(pins=PINS.replace("supported = [17]", "supported = [17, 18]").replace("beta = [18]", "beta = []"))
+        self.assertEqual([(l["major"], l["advisory"]) for l in promoted["legs"]],
+                         [("16", False), ("17", False), ("18", False)])
+
+    def test_a_pinned_major_that_is_not_built_is_an_error(self):
+        with self.assertRaisesRegex(gate.Finding, "Postgres 18 is in Loams' pin file but not in vendor/revisions.json"):
+            self.plan(revisions={k: REVISIONS[k] for k in ("v16", "v17")})
+
+    def test_a_built_major_newer_than_every_pin_gets_an_advisory_leg(self):
+        p = self.plan(pins=PINS.replace("beta = [18]", "beta = []"))
+        self.assertEqual(p["legs"][-1], {"major": "18", "status": "unpinned", "advisory": True})
+
+    def test_beta_leg_advisory_for_other_majors(self):
+        legs = {l["major"]: l for l in self.plan()["legs"]}
+        self.assertTrue(legs["18"]["advisory"])
+        self.assertFalse(legs["17"]["advisory"])
+        self.assertFalse(legs["16"]["advisory"])
+        # ... and required for its own images.
+        own = {l["major"]: l for l in self.plan(own=["18"])["legs"]}
+        self.assertFalse(own["18"]["advisory"])
+        # The workflow lets an advisory leg fail without failing its job, so a
+        # red beta leg leaves `g2` green and the gate passes ...
+        wf = (REPO_ROOT / ".github" / "workflows" / "loams-gate.yml").read_text()
+        for job in ("g2", "g2-upgrade"):
+            block = wf.split(f"\n  {job}:\n", 1)[1].split("\n\n  ", 1)[0]
+            self.assertIn("continue-on-error: ${{ matrix.leg.advisory }}", block, job)
+        self.assertEqual(gate.verdict(["g2"], needs(g2_build="success", g2="success", g2_upgrade="skipped"),
+                                      may_skip=["g2-upgrade"]), [])
+        # ... while a red required leg fails it.
+        self.assertEqual(gate.verdict(["g2"], needs(g2_build="success", g2="failure", g2_upgrade="skipped"),
+                                      may_skip=["g2-upgrade"]), ["g2 (g2): failure"])
+
+    def test_own_major_must_have_a_leg(self):
+        with self.assertRaisesRegex(gate.Finding, "own major 19 has no leg"):
+            self.plan(own=["19"])
+
+    def test_upgrade_from_each_supported_major_to_the_next(self):
+        p = self.plan()
+        self.assertEqual(p["upgrade"], [{"from": "17", "to": "18", "advisory": True}])
+        self.assertEqual(p["upgrade_skipped"], [])
+        self.assertEqual(self.plan(own=["18"])["upgrade"], [{"from": "17", "to": "18", "advisory": False}])
+
+    def test_upgrade_to_a_major_not_built_is_skipped_with_a_reason(self):
+        p = self.plan(pins=PINS.replace("beta = [18]", "beta = []"), revisions={k: REVISIONS[k] for k in ("v16", "v17")})
+        self.assertEqual(p["upgrade"], [])
+        self.assertEqual(p["upgrade_skipped"], [{"from": "17", "to": "18",
+                                                 "reason": "Postgres 18 is not built in this commit (no v18 in vendor/revisions.json)"}])
+        self.assertEqual(p["may_skip"], ["g2-upgrade"])
+
+    def test_skipped_job_is_red_unless_the_plan_allows_it(self):
+        self.assertEqual(gate.verdict(["g2"], needs(g2_build="success", g2="success", g2_upgrade="skipped")),
+                         ["g2-upgrade (g2): skipped"])
+        # may_skip never excuses a failure.
+        self.assertTrue(gate.verdict(["g2"], needs(g2_build="success", g2="success", g2_upgrade="failure"),
+                                     may_skip=["g2-upgrade"]))
+
+    def test_cli_legs(self):
+        with tempfile.TemporaryDirectory() as d:
+            pins, revs = Path(d) / "pins.toml", Path(d) / "revisions.json"
+            pins.write_text(PINS)
+            revs.write_text(json.dumps(REVISIONS))
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                self.assertEqual(gate.main(["legs", "--pins", str(pins), "--revisions", str(revs), "--own-majors", ""]), 0)
+            lines = dict(l.split("=", 1) for l in out.getvalue().splitlines())
+            self.assertEqual([l["major"] for l in json.loads(lines["legs"])], ["16", "17", "18"])
+            self.assertEqual(json.loads(lines["upgrade"]), [{"from": "17", "to": "18", "advisory": True}])
+            self.assertEqual(json.loads(lines["may-skip"]), [])
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(gate.main(["legs", "--pins", str(pins), "--revisions", str(revs), "--own-majors", "x"]), 2)
+
+    def test_the_gate_never_runs_on_pull_requests_or_a_schedule(self):
+        wf = (REPO_ROOT / ".github" / "workflows" / "loams-gate.yml").read_text()
+        on = wf.split("\non:\n", 1)[1].split("\n\n", 1)[0]
+        triggers = [l.strip().rstrip(":") for l in on.splitlines() if l.startswith("  ") and not l.startswith("   ")]
+        self.assertEqual(triggers, ["workflow_dispatch", "workflow_call"])
+
+
 class ExecCheck(unittest.TestCase):
     WORKFLOW = (
         "jobs:\n"

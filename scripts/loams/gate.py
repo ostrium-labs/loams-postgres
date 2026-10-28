@@ -4,7 +4,8 @@
     gate.py subset-check [--subset scripts/loams/gate-subset.txt] [--root .]
     gate.py subset-args  [--subset scripts/loams/gate-subset.txt] [--root .]
     gate.py tiers   --tiers g0,g1,g2
-    gate.py verdict --tiers g0,g1,g2 --needs '<the needs context as JSON>'
+    gate.py legs    --pins <loams-postgres-images.toml> [--revisions vendor/revisions.json] [--own-majors 18]
+    gate.py verdict --tiers g0,g1,g2 --needs '<the needs context as JSON>' [--may-skip '["g2-upgrade"]']
     gate.py required-checks [--repo ostrium-labs/loams-postgres] [--branch main]
     gate.py exec-check [--root .]
 
@@ -20,11 +21,26 @@ subset-args: the pytest arguments for the subset, one per line (the tests, then
 tiers: the requested tiers, validated (g0, g1, g2, g3), as JSON booleans for
 the workflow's `if:`s, e.g. {"g0": true, "g1": false, ...}.
 
+legs (NF2 Task 7, design §62 §8, D1118): G2's legs and its `upgrade` job,
+printed as `legs=`, `upgrade=`, `upgrade-skipped=` and `may-skip=` lines of
+JSON for $GITHUB_OUTPUT. The majors are Loams' pin file's (supported,
+maintenance and beta; the same file the release and loams-build-compute.yml
+read), each of which must be built here (in vendor/revisions.json), plus any
+major built here that is newer than every pinned one (`unpinned`: a major on
+its way to its first beta, e.g. 18 before Task 14). A beta or unpinned leg is
+advisory (its job may fail without failing the gate: a broken beta never
+blocks another major's release) unless --own-majors names it: a release of a
+major's own images needs its legs green. `upgrade` is Path 1 from each
+supported major N to N+1, advisory or not as N+1's leg; when N+1 is not built
+here the pair is skipped with a reason, never run as a pass. `may-skip` names
+the jobs the plan leaves with nothing to run (g2-upgrade with no pair).
+
 verdict: the gate's final job. `needs` maps each tier's jobs to their results;
 a job belongs to the tier its name starts with (`g2-build` is G2). The gate
 passes only when every job of every requested tier succeeded: a failure, a
 cancellation, or a requested tier whose job was skipped fails it
-(gate_fails_on_red_tier). Jobs of tiers not requested may be skipped.
+(gate_fails_on_red_tier), except a job the plan listed in --may-skip (one
+with nothing to run). Jobs of tiers not requested may be skipped.
 
 required-checks (required_checks_configured): the rules in force on `main`
 require the status checks of the pull-request tier, `hygiene`, `patches` and
@@ -48,6 +64,7 @@ import json
 import os
 import re
 import sys
+import tomllib
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -131,7 +148,56 @@ def parse_tiers(spec):
     return tiers
 
 
-def verdict(tiers, needs):
+LEG_STATUSES = ("supported", "maintenance", "beta")
+
+
+def legs(pins_text, revisions, own=()):
+    """G2's legs and the upgrade job's pairs (NF2 Task 7, D1118); Finding on a bad plan."""
+    try:
+        m = tomllib.loads(pins_text)["majors"]
+    except (tomllib.TOMLDecodeError, KeyError) as e:
+        raise Finding(f"Loams' pin file has no [majors]: {e}") from None
+    status = {}
+    for s in reversed(LEG_STATUSES):  # supported wins over beta if both list it
+        for v in m.get(s, []):
+            status[int(v)] = s
+    if not status:
+        raise Finding("Loams' pin file lists no majors")
+    problems = [f"Postgres {n} is in Loams' pin file but not in vendor/revisions.json"
+                for n in sorted(status) if f"v{n}" not in revisions]
+    built = sorted(int(k[1:]) for k in revisions if re.fullmatch(r"v[0-9]+", k))
+    for n in built:
+        if n > max(status):
+            status[n] = "unpinned"
+    own = {int(o) for o in own}
+    problems += [f"own major {o} has no leg" for o in sorted(own - set(status))]
+    if problems:
+        raise Finding("\n".join(problems))
+
+    def advisory(n):
+        return status[n] in ("beta", "unpinned") and n not in own
+
+    out = [{"major": str(n), "status": status[n], "advisory": advisory(n)} for n in sorted(status)]
+    upgrade, skipped = [], []
+    for n in sorted(k for k, s in status.items() if s == "supported"):
+        if f"v{n + 1}" not in revisions:
+            skipped.append({"from": str(n), "to": str(n + 1),
+                            "reason": f"Postgres {n + 1} is not built in this commit (no v{n + 1} in vendor/revisions.json)"})
+        else:
+            upgrade.append({"from": str(n), "to": str(n + 1), "advisory": advisory(n + 1)})
+    return {"legs": out, "upgrade": upgrade, "upgrade_skipped": skipped,
+            "may_skip": [] if upgrade else ["g2-upgrade"]}
+
+
+def parse_own(spec):
+    own = [o.strip() for o in spec.split(",") if o.strip()]
+    bad = [o for o in own if not o.isdigit()]
+    if bad:
+        raise ValueError(f"--own-majors must be comma-separated major numbers, not {spec!r}")
+    return own
+
+
+def verdict(tiers, needs, may_skip=()):
     """A list of problems; empty means the gate is green."""
     problems = []
     seen = set()
@@ -146,6 +212,8 @@ def verdict(tiers, needs):
                 problems.append(f"{job}: {result} (tier {tier} was not requested)")
             continue
         seen.add(tier)
+        if result == "skipped" and job in may_skip:
+            continue
         if result != "success":
             problems.append(f"{job} ({tier}): {result}")
     for t in tiers:
@@ -233,6 +301,11 @@ def main(argv):
     s = sub.add_parser("verdict")
     s.add_argument("--tiers", required=True)
     s.add_argument("--needs", required=True)
+    s.add_argument("--may-skip", default="[]", help="JSON list of jobs with nothing to run")
+    s = sub.add_parser("legs")
+    s.add_argument("--pins", required=True)
+    s.add_argument("--revisions", default=str(Path(__file__).resolve().parents[2] / "vendor" / "revisions.json"))
+    s.add_argument("--own-majors", default="")
     s = sub.add_parser("exec-check")
     s.add_argument("--root", default=".")
     s = sub.add_parser("required-checks")
@@ -263,11 +336,20 @@ def main(argv):
             else:
                 print(f"gate subset: ok ({len(tests)} tests, {len(deselects)} deselected)")
             return 0
+        if a.cmd == "legs":
+            own = parse_own(a.own_majors)
+            p = legs(Path(a.pins).read_text(encoding="utf-8"),
+                     json.loads(Path(a.revisions).read_text(encoding="utf-8")), own)
+            print(f"legs={json.dumps(p['legs'])}")
+            print(f"upgrade={json.dumps(p['upgrade'])}")
+            print(f"upgrade-skipped={json.dumps(p['upgrade_skipped'])}")
+            print(f"may-skip={json.dumps(p['may_skip'])}")
+            return 0
         tiers = parse_tiers(a.tiers)
         if a.cmd == "tiers":
             print(json.dumps({t: t in tiers for t in TIERS}, sort_keys=True))
             return 0
-        problems = verdict(tiers, json.loads(a.needs))
+        problems = verdict(tiers, json.loads(a.needs), json.loads(a.may_skip))
     except Finding as e:
         print(e, file=sys.stderr)
         return 1

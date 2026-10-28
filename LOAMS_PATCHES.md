@@ -49,6 +49,7 @@ Columns:
 | LP-0016 | Postgres minors 16.15 and 17.11 on the recut branches `loams/pg16` (from 16.9 `a42351fc`) and `loams/pg17` (from 17.5 `1e01fcea`); `loams/REL_<N>_STABLE` retired, because Neon's branch heads need unpublished `pgxn/neon` changes (owner, 2026-10-17); `loams-postgres-merge.yml` and `postgres-merge.sh` (the merge in CI); 17.11 keeps the fork's heap WAL format without upstream's VM block references (`docs/loams/pg17-vm-clear.md`, `test_loams_vm_clear.py`) | ci, pg | @dina-kar | 2026-10-16 | loams-only | never |
 | LP-0032 | Least privilege for spec roles: a role gets what the spec asks for; `privileged` opts into Neon's admin attributes and `neon_superuser` | compute | @dina-kar | 2026-10-12 | loams-only | never (Loams' role model, PG2 R11.9) |
 | LP-0033 | `postgres_ffi`'s build finds the server headers in `include/server` too: Postgres installs them there when the prefix names "postgres", as in a `loams-postgres` checkout | build | @dina-kar | 2026-10-14 | upstreamable | never |
+| LP-0050 | The gate per major (NF2 Task 7, D1118): G2's legs from Loams' pin file (`gate.py legs`: supported, maintenance, beta, and a newer built major as `unpinned`), beta legs advisory unless `own-majors` names them, the `g2-upgrade` skeleton (Path 1, body in NF2 Task 13), G3 decided by the `loams-gate / g3` status; no schedule | ci, pg18 | @dina-kar | 2026-10-28 | loams-only | never |
 
 ## Commits without a trailer
 
