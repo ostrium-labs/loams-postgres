@@ -1,0 +1,9 @@
+# The port of loams/pg17 (REL_17_11..) onto REL_18_6 (LP-0035, NF2 Task 2, D1109).
+# Read by scripts/loams/postgres-merge.sh port (docs/loams/postgres-branches.md).
+# One line per series commit that does not cherry-pick as it is:
+#   <17 sha> patch <file> [note]      apply <file> (here) instead: a `git diff` against the port at that point
+#   <17 sha> neon <neon sha> [note]   take Neon's 18 version from REL_18_STABLE_neon (a reference, never a base)
+#   <17 sha> skip <reason>            leave it out
+# Every other commit is cherry-picked unchanged.
+
+c69205fae5fdb9975e2c12ab64afc743cfb32cba skip Neon's CI for its Postgres repository (.github/workflows/build.yml on REL_17_STABLE_neon); Actions are disabled on ostrium-labs/postgres, and loams-postgres-merge.yml builds and checks the port
