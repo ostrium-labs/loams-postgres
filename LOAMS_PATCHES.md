@@ -56,6 +56,7 @@ Columns:
 | LP-0040 | Postgres 18 in the Rust side (NF2 Task 4): `PgMajorVersion::PG18`; `PgVersionId::from_full_pg_version` returns an error outside 14–18 instead of panicking; `postgres_ffi` binds v18 (`XLOG_PAGE_MAGIC` `0xD118`, `pg_constants_v18.rs`, checked against the headers by `bindgen_consts.h`) and maps a page magic to its major, an unknown magic being an error; `wal_decoder` refuses 18 records until LP-0041 | pg18 | @dina-kar | 2026-10-28 | loams-only | never |
 | LP-0041 | Postgres 18 in the decoder, the pageserver and bootstrap (NF2 Task 5): 16-byte `xl_xact_stats_item` at 18, an unknown resource manager is an error from 18, the control file decoded by its major (18 moved the CRC) for imports, `initdb --no-data-checksums` from 18 and imports of a data directory with checksums on refused with `import_checksums_enabled` (D1111); walingest's per-major tables reach 18 | pg18 | @dina-kar | 2026-10-29 | loams-only | never |
 | LP-0042 | Commit and abort parsing skips the two-phase GID before the replication origin, so a COMMIT PREPARED with both reads the right origin LSN (every major; found by the 18 format diff) | storage | @dina-kar | 2026-10-29 | upstreamable | never |
+| LP-0034 | The Postgres 18 format diff: `docs/loams/pg18-format-diff.md` (17.11 → 18.6, every item classified per §51 §8.3) and its check, `scripts/loams/format-diff-check.py` in `loams-hygiene.yml` (NF2 Task 1) | pg18 | @dina-kar | 2026-10-28 | loams-only | never |
 
 ## Commits without a trailer
 
