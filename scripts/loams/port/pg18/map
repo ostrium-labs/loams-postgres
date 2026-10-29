@@ -68,3 +68,4 @@ dd3f30f5b5a111f22c465238b2248512acf33e39 resolve dd3f30f5b5.resolve
 59b2fe851f8e0595f6c830b90ee766f4f1c17a0f resolve 59b2fe851f.resolve
 c9e4ff5a38907acd71107634055bf2609aba43a5 skip upstream: 18 already detects strchrnul() this way (the macOS 15.4 fix is in REL_18_6's meson.build and configure)
 b763ab54b98d232a0959371ab1d07f06ed77c49e resolve b763ab54b9.resolve
+0d59c91c1a23e667f1d1169d5f040b3fa0a0ab44 skip superseded at 18: it changes Neon's own heap-vacuum prefetch, which 18 replaces with the read stream (see 19d879fb62 above)
