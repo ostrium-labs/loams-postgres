@@ -66,3 +66,4 @@ dd3f30f5b5a111f22c465238b2248512acf33e39 resolve dd3f30f5b5.resolve
 # Temporary relations keep READ_STREAM_SEQUENTIAL (read through md.c): by persistence in 18's read_stream_begin_impl.
 65c4e46baf56ec05412c7dd63d62faff0b33dcfb resolve 65c4e46baf.resolve
 59b2fe851f8e0595f6c830b90ee766f4f1c17a0f resolve 59b2fe851f.resolve
+c9e4ff5a38907acd71107634055bf2609aba43a5 skip upstream: 18 already detects strchrnul() this way (the macOS 15.4 fix is in REL_18_6's meson.build and configure)
