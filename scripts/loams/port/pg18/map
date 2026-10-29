@@ -51,3 +51,5 @@ be63d48593dbe9cc824e9f6d116098866dedfcfa resolve be63d48593.resolve
 # Combocid in WAL: the redo half (fix_infomask_from_infobits) lives in heapam_xlog.c at 18.
 0e6c1d4c3f04fa193c9aba07693339885b9e31da resolve 0e6c1d4c3f.resolve
 9536f8ea967ffd11a1fbfd0d92894076cd55d14d resolve 9536f8ea96.resolve
+# WAL redo uses local buffers: Neon's 18 version covers 18's read path (AsyncReadBuffers and friends).
+66c8d0d3a186bbd158c38461b2b71cf8e814a389 neon 81d4dd1ea1f1c346d30200f9526477aa24a0d5dd the wal-redo local-buffer rule across 18's read stream and AIO read path
