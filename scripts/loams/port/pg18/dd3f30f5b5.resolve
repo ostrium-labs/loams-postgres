@@ -1,0 +1,35 @@
+diff --git a/src/bin/initdb/initdb.c b/src/bin/initdb/initdb.c
+--- a/src/bin/initdb/initdb.c
++++ b/src/bin/initdb/initdb.c
+@@ -227,6 +227,7 @@
+ 
+ /* Additional switches to pass to backend (either boot or standalone) */
+ static char *extra_options = "";
++static char *extra_boot_options = "";
+ 
+ static const char *const subdirs[] = {
+ 	"global",
+@@ -1609,7 +1610,9 @@
+ 
+ 	initPQExpBuffer(&cmd);
+ 
+-	printfPQExpBuffer(&cmd, "\"%s\" --boot %s %s", backend_exec, boot_options, extra_options);
++	printfPQExpBuffer(&cmd, "\"%s\" --boot %s %s %s",
++					  backend_exec, boot_options, extra_boot_options,
++					  extra_options);
+ 	appendPQExpBuffer(&cmd, " -X %d", wal_segment_size_mb * (1024 * 1024));
+ 	if (data_checksums)
+ 		appendPQExpBufferStr(&cmd, " -k");
+@@ -3397,9 +3400,9 @@
+ 				sync_data_files = false;
+ 				break;
+ 			case 22:
+-				extra_options = psprintf("%s -s %s",
+-										 extra_options,
+-										 optarg);
++				extra_boot_options = psprintf("%s -s %s",
++											  extra_boot_options,
++											  optarg);
+ 				break;
+ 			default:
+ 				/* getopt_long already emitted a complaint */

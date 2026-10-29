@@ -14,3 +14,7 @@
 	path = vendor/postgres-v17
 	url = ../postgres.git
 	branch = loams/pg17
+[submodule "vendor/postgres-v18"]
+	path = vendor/postgres-v18
+	url = ../postgres.git
+	branch = loams/pg18

@@ -1,0 +1,40 @@
+From f368841ccf715924beff384fed3040fb8c959c2c Mon Sep 17 00:00:00 2001
+From: Matthias van de Meent <matthias.vandemeent@databricks.com>
+Date: Thu, 4 Sep 2025 22:04:00 +0200
+Subject: [PATCH] Stop sending invalidation messages during WAL redo
+
+Upstream 18's heap_xlog_inplace processes the record's invalidation
+messages during redo; with relcacheInitFileInval set that unlinks the
+relcache init files, which neon_walredo's seccomp filter does not allow.
+NF2 Task 1 F26.
+
+(cherry picked from neondatabase/postgres f368841ccf715924beff384fed3040fb8c959c2c)
+
+Loams-Patch: LP-0036
+Signed-off-by: Dinakaran <dinakaranvijayakumar@outlook.com>
+---
+ src/backend/access/heap/heapam_xlog.c | 11 ++++++-----
+ 1 file changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/src/backend/access/heap/heapam_xlog.c b/src/backend/access/heap/heapam_xlog.c
+index 98b9b8587f8..7c7248246bf 100644
+--- a/src/backend/access/heap/heapam_xlog.c
++++ b/src/backend/access/heap/heapam_xlog.c
+@@ -1185,11 +1185,12 @@ heap_xlog_inplace(XLogReaderState *record)
+ 	if (BufferIsValid(buffer))
+ 		UnlockReleaseBuffer(buffer);
+ 
+-	ProcessCommittedInvalidationMessages(xlrec->msgs,
+-										 xlrec->nmsgs,
+-										 xlrec->relcacheInitFileInval,
+-										 xlrec->dbId,
+-										 xlrec->tsId);
++	if (!am_wal_redo_postgres)
++		ProcessCommittedInvalidationMessages(xlrec->msgs,
++											 xlrec->nmsgs,
++											 xlrec->relcacheInitFileInval,
++											 xlrec->dbId,
++											 xlrec->tsId);
+ }
+ 
+ void
