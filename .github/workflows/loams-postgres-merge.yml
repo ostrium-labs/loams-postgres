@@ -207,7 +207,11 @@ jobs:
           make -s -k -j"$(nproc)" world-bin > "$RUNNER_TEMP/build.log" 2>&1 || {
             grep -E 'error:|undefined reference|Error [0-9]' "$RUNNER_TEMP/build.log" | sort -u | head -n 200; exit 1; }
           make -s install-world-bin > /dev/null
-          make check || { find . -name regression.diffs -exec cat {} + | head -n 400; exit 1; }
+          make check || {
+            find . -name regression.diffs -exec cat {} + | head -n 400
+            # The server's own log names an assertion or a crash.
+            find . -path '*tmp_check/log/*' -name '*.log' -exec sh -c 'echo "== $1"; tail -n 80 "$1"' _ {} \;
+            exit 1; }
       - name: installcheck-world
         if: inputs.mode == 'port' && steps.port.outputs.complete == 'true' && (inputs.check || inputs.promote)
         working-directory: ${{ runner.temp }}/postgres-port-work
