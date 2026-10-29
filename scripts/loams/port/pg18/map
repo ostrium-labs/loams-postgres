@@ -41,3 +41,7 @@ a4e665a873220a3aa6761d2ad2c2e131827cd55f resolve a4e665a873.resolve
 # Prefetch in scans: at 18 vacuum (heap, btree, gist, spgist) and bitmap heap scans read through the read
 # stream, which prefetches through the smgr, so only index-scan prefetch remains; Neon's 18 version is that.
 19d879fb62292b07ab9ec756585ccbfe54e6ec9e neon a6f2a3666167e2b0ff35b42e0abbde366f2a6364 18 keeps index-scan prefetch only; the read stream covers vacuum and bitmap heap scans
+# Compatibility changes: 18's dispatch table gains wal-redo and sync-safekeepers (as Neon's 18 does); the
+# walproposer bgworker counts as a WAL sender in 18's child bookkeeping and returns to the bgworker pool;
+# ExplainState moved to explain_state.h; relation size through the smgr.
+b4357e322970eebb5d9bb303387fe819aee8e452 resolve b4357e3229.resolve
