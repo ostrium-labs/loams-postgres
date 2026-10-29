@@ -47,6 +47,10 @@
 #                                  from REL_<MAJOR>_STABLE_neon, with
 #                                  `(cherry picked from neondatabase/postgres <sha>)`
 #      <sha> skip <reason>         leave it out (e.g. upstream already has it)
+#      <sha> before <mbox>         apply our own commit (`git format-patch` output,
+#                                  with its own message and trailer) before <sha>
+#      end <mbox>                  the same, after the series
+#    Our own commits are recognised on a later run by their patch-id.
 # 5. The first conflict stops the port. $OUT gets conflicts.txt, conflicts.diff,
 #    commit (the series commit), how, commit.patch, files/{ours,base,theirs,merged,
 #    upstream}/<path> for every file the commit touches (ours = the port so far,
@@ -72,6 +76,9 @@ name=${GIT_NAME:-loams-postgres-bot}
 email=${GIT_EMAIL:-loams-postgres-bot@users.noreply.github.com}
 
 port_main() {
+  # An unexpected failure names its line and command (set -e alone is silent).
+  set -E
+  trap 'echo "::error::postgres-merge.sh line $LINENO: \"$BASH_COMMAND\" failed"' ERR
   local usage="usage: postgres-merge.sh port MAJOR BASE_TAG --from loams/pg<P> --since REL_<P>_<m> --patch-id LP-<nnnn> [--map FILE] [--push] [--promote] [--keep-going]"
   [ $# -ge 2 ] || { echo "$usage"; exit 2; }
   local major=$1 base=$2; shift 2
@@ -97,8 +104,8 @@ port_main() {
   if $keep && $push; then echo "--keep-going is a survey: it cannot be combined with --push or --promote"; exit 2; fi
 
   # The map, read before anything is fetched so a typo fails fast.
-  declare -A act=() arg=() note=()
-  local mapdir="" mapprefix="" line msha a1 a2 a3
+  declare -A act=() arg=() note=() bef=()
+  local ends=() mapdir="" mapprefix="" line msha a1 a2 a3
   if [ -n "$map" ]; then
     [ -f "$map" ] || { echo "no map file $map"; exit 2; }
     mapdir=$(cd "$(dirname "$map")" && pwd)
@@ -106,12 +113,20 @@ port_main() {
     while IFS= read -r line || [ -n "$line" ]; do
       [[ $line =~ ^[[:space:]]*(#|$) ]] && continue
       read -r msha a1 a2 a3 <<< "$line"
+      if [ "$msha" = end ]; then
+        [ -n "$a1" ] && [ -f "$mapdir/$a1" ] || { echo "map: no mbox '$a1' for end"; exit 2; }
+        ends+=("$a1"); continue
+      fi
       [[ $msha =~ ^[0-9a-f]{7,40}$ ]] || { echo "map: bad commit '$msha' in: $line"; exit 2; }
+      if [ "$a1" = before ]; then
+        [ -n "$a2" ] && [ -f "$mapdir/$a2" ] || { echo "map: no mbox '$a2' before $msha"; exit 2; }
+        bef[$msha]+="$a2 "; continue
+      fi
       case "$a1" in
         patch) [ -n "$a2" ] && [ -f "$mapdir/$a2" ] || { echo "map: no patch file '$a2' for $msha"; exit 2; } ;;
         neon) [[ $a2 =~ ^[0-9a-f]{40}$ ]] || { echo "map: neon needs a full sha for $msha, not '$a2'"; exit 2; } ;;
         skip) [ -n "$a2" ] || { echo "map: skip needs a reason for $msha"; exit 2; }; a3="$a2${a3:+ $a3}"; a2="" ;;
-        *) echo "map: unknown action '$a1' for $msha (patch, neon or skip)"; exit 2 ;;
+        *) echo "map: unknown action '$a1' for $msha (patch, neon, skip or before)"; exit 2 ;;
       esac
       act[$msha]=$a1 arg[$msha]=$a2 note[$msha]=$a3
     done < "$map"
@@ -140,13 +155,15 @@ port_main() {
   mapfile -t series < <(git rev-list --reverse --topo-order --no-merges "refs/tags/$since..refs/remotes/origin/$from")
   [ ${#series[@]} -gt 0 ] || { echo "no commits in $since..$from"; exit 2; }
   # Map entries name commits of the series by (abbreviated) sha; resolve them.
-  declare -A cact=() carg=() cnote=()
+  declare -A cact=() carg=() cnote=() cbef=()
   local c k hit
-  for k in "${!act[@]}"; do
+  for k in "${!act[@]}" "${!bef[@]}"; do
     hit=""
     for c in "${series[@]}"; do [[ $c == "$k"* ]] && hit+="$c "; done
     [ "$(wc -w <<< "$hit")" -eq 1 ] || { echo "map: $k matches ${hit:-no} commit(s) of $since..$from"; exit 2; }
-    hit=${hit% }; cact[$hit]=${act[$k]} carg[$hit]=${arg[$k]} cnote[$hit]=${note[$k]}
+    hit=${hit% }
+    if [ -n "${act[$k]:-}" ]; then cact[$hit]=${act[$k]} carg[$hit]=${arg[$k]} cnote[$hit]=${note[$k]}; fi
+    if [ -n "${bef[$k]:-}" ]; then cbef[$hit]+=${bef[$k]}; fi
   done
 
   local have_port=false have_branch=false start=$base_sha
@@ -161,17 +178,46 @@ port_main() {
   git checkout -q -B port "$start"
   echo "series: ${#series[@]} commits in $since..$from; base $base $(git rev-parse --short "$base_sha"); start $(git rev-parse --short "$start")"
 
-  declare -A done_=()
+  declare -A done_=() pids=()
   local s
   while read -r s; do [ -n "$s" ] && done_[$s]=1; done < <(git log --format=%B "$base_sha..HEAD" | sed -nE 's/^\(ported from ([0-9a-f]{40})\)$/\1/p')
+  # Our own commits (before/end) are recognised by patch-id.
+  while read -r s _; do [ -n "$s" ] && pids[$s]=1; done < <(git log -p --no-merges --format='commit %H' "$base_sha..HEAD" | git patch-id --stable)
 
-  : > "$out/series.txt"; rm -rf "$out/conflicts" "$out/files"; rm -f "$out/conflicting.txt" "$out/sha" "$out/complete"
-  local n_done=0 n_pick=0 n_neon=0 n_patch=0 n_skip=0 n_empty=0 n_conf=0 i=0 stopped=""
-  local how src subj status body tmpmsg
+  : > "$out/series.txt"; rm -rf "$out/conflicts" "$out/files"; rm -f "$out/conflicting.txt" "$out/remaining.txt" "$out/sha" "$out/complete"
+  local n_done=0 n_pick=0 n_neon=0 n_patch=0 n_skip=0 n_empty=0 n_conf=0 n_extra=0 i=0 stopped=""
+  local how src subj status body tmpmsg x
   tmpmsg=$(mktemp)
+  # Our own commit from an mbox; 0 applied or already there, 1 conflict (recorded).
+  apply_extra() { # mbox at-commit
+    local f=$1 at=$2 id d
+    id=$(git patch-id --stable < "$mapdir/$f" | cut -d' ' -f1)
+    if [ -n "$id" ] && [ -n "${pids[$id]:-}" ]; then echo "done  extra $f"; echo "extra done $f" >> "$out/series.txt"; return 0; fi
+    if git am -q --3way "$mapdir/$f" > /dev/null 2>&1; then
+      [ -n "$id" ] && pids[$id]=1
+      n_extra=$((n_extra + 1)); echo "extra $f: $(git log -1 --format=%s)"; echo "extra applied $f" >> "$out/series.txt"
+      return 0
+    fi
+    n_conf=$((n_conf + 1)); d=$out
+    if $keep; then d=$out/conflicts/$n_conf-extra-${f//\//_}; echo "extra:$f $at" >> "$out/conflicting.txt"; fi
+    port_record "$d" "extra:$f" "" extra "$base_sha" "$f"
+    echo "::error::our commit $f does not apply (before ${at:-the end}): $(tr '\n' ' ' < "$d/conflicts.txt")"
+    echo "extra conflict $f" >> "$out/series.txt"
+    git am --abort > /dev/null 2>&1 || git reset -q --hard HEAD
+    return 1
+  }
   for c in "${series[@]}"; do
     i=$((i + 1))
     subj=$(git log -1 --format=%s "$c")
+    for x in ${cbef[$c]:-}; do
+      if apply_extra "$x" "$c"; then continue; fi
+      $keep && continue
+      for ((x = i - 1; x < ${#series[@]}; x++)); do
+        echo "${series[x]} $(git log -1 --format=%s "${series[x]}")" >> "$out/remaining.txt"
+        echo "${series[x]} pending $(git log -1 --format=%s "${series[x]}")" >> "$out/series.txt"
+      done
+      stopped=$c; break 2
+    done
     if [ -n "${done_[$c]:-}" ]; then n_done=$((n_done + 1)); echo "$c done $subj" >> "$out/series.txt"; continue; fi
     how=${cact[$c]:-pick} src=$c status=ok
     case "$how" in
@@ -230,8 +276,15 @@ port_main() {
     echo "$c $how $subj" >> "$out/series.txt"
     echo "$how  $c $subj"
   done
+  if [ -z "$stopped" ]; then
+    for x in "${ends[@]}"; do
+      if apply_extra "$x" ""; then continue; fi
+      $keep && continue
+      stopped=end; break
+    done
+  fi
   rm -f "$tmpmsg"
-  local summary="port $from -> $branch: ${#series[@]} in series; $n_done ported before; applied $n_pick cleanly, $n_neon from Neon, $n_patch by patch; $n_skip skipped, $n_empty empty; $n_conf conflict(s)"
+  local summary="port $from -> $branch: ${#series[@]} in series; $n_done ported before; applied $n_pick cleanly, $n_neon from Neon, $n_patch by patch; $n_skip skipped, $n_empty empty; $n_extra of our own; $n_conf conflict(s)"
   echo "$summary" | tee "$out/summary.txt"
   git rev-parse HEAD > "$out/head"
 
@@ -263,6 +316,17 @@ port_record() { # dir commit src how base_sha patch-file
   echo "$how${pf:+ $pf}${src:+ $src}" > "$d/how"
   git rev-parse HEAD > "$d/head"
   git diff --name-only --diff-filter=U > "$d/conflicts.txt"
+  if [ "$how" = extra ]; then
+    [ -s "$d/conflicts.txt" ] || git apply --numstat "$mapdir/$pf" 2> /dev/null | cut -f3 > "$d/conflicts.txt" || true
+    git diff > "$d/conflicts.diff" || true
+    while IFS= read -r p; do
+      [ -n "$p" ] || continue
+      mkdir -p "$d/files/ours/$(dirname "$p")" "$d/files/merged/$(dirname "$p")"
+      git show "HEAD:$p" > "$d/files/ours/$p" 2> /dev/null || rm -f "$d/files/ours/$p"
+      if [ -f "$p" ]; then cp "$p" "$d/files/merged/$p"; fi
+    done < "$d/conflicts.txt"
+    return 0
+  fi
   if [ "$how" = patch ] && [ ! -s "$d/conflicts.txt" ]; then
     git apply --numstat "$mapdir/$pf" 2> /dev/null | cut -f3 > "$d/conflicts.txt" || true
   fi
@@ -277,7 +341,7 @@ port_record() { # dir commit src how base_sha patch-file
     git show "$src^:$p" > "$d/files/base/$p" 2> /dev/null || rm -f "$d/files/base/$p"
     git show "$src:$p" > "$d/files/theirs/$p" 2> /dev/null || rm -f "$d/files/theirs/$p"
     git show "$base_sha:$p" > "$d/files/upstream/$p" 2> /dev/null || rm -f "$d/files/upstream/$p"
-    [ -f "$p" ] && cp "$p" "$d/files/merged/$p"
+    if [ -f "$p" ]; then cp "$p" "$d/files/merged/$p"; fi
   done < <({ git diff-tree --no-commit-id -r --name-only "$src"; cat "$d/conflicts.txt"; } | sort -u)
 }
 

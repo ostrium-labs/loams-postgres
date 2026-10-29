@@ -17,6 +17,8 @@
 #   port_map_patch_resumes            a map entry `patch` resolves it; the next run resumes from
 #                                     loams/port-pg18 without re-applying, and --promote moves loams/pg18
 #   port_map_neon_and_skip            `neon <sha>` takes Neon's 18 commit, `skip` leaves one out
+#   port_map_extra_commits            `before <file>` and `end <file>` add our own commits (mbox) at
+#                                     their place, once: a resumed run does not apply them again
 #   port_keep_going_lists_all         --keep-going (no push) surveys every conflict
 #   port_promote_needs_complete       --promote never moves loams/pg18 to an incomplete series
 #   port_bad_args_refused
@@ -101,10 +103,10 @@ port_setup() { # $1: conflict | clean
   rm -rf "$tmp/up" "$tmp/fork" "$tmp/out" "$tmp/work" "$tmp/w"
   git init -q -b master "$tmp/up"
   ( cd "$tmp/up"
-    printf 'a\nb\nc\n' > smgr.c; echo root > version; git add .; git commit -q -m root
+    printf 'a\nb\nc\n' > smgr.c; echo root > version; echo old > zz_gone.c; git add .; git commit -q -m root
     git checkout -q -b REL_17_STABLE; echo 17.11 > version; git commit -q -am 17.11; git tag REL_17_11
     git checkout -q -b REL_18_STABLE master
-    if [ "$1" = conflict ]; then printf 'a\nREADV\nc\n' > smgr.c; fi
+    if [ "$1" = conflict ]; then printf 'a\nREADV\nc\n' > smgr.c; git rm -q zz_gone.c; fi
     echo 18.2 > version; git commit -q -am 18.2; git tag REL_18_2
     echo 18.6 > version; git commit -q -am 18.6; git tag REL_18_6 )
   git -C "$tmp/up" config uploadpack.allowFilter true
@@ -117,7 +119,7 @@ port_setup() { # $1: conflict | clean
     git checkout -q -b loams/pg17 FETCH_HEAD 2> /dev/null || true
     git checkout -q -B loams/pg17 "$(git -C "$tmp/up" rev-parse REL_17_11)"
     echo feature > feature.c; git add feature.c; git commit -q -m "c0: neon feature" -m "Body of c0."
-    printf 'a\nNEON\nc\n' > smgr.c; git commit -q -am "c1: neon smgr hook"
+    printf 'a\nNEON\nc\n' > smgr.c; echo neon > zz_gone.c; git commit -q -am "c1: neon smgr hook"
     git checkout -q -b side HEAD~1; echo side > side.c; git add side.c; git commit -q -m "side"
     git checkout -q loams/pg17; git merge -q --no-ff -m "merge side" side
     echo sec > SECURITY.md; git add SECURITY.md; git commit -q -m "c2: governance" -m "Loams-Patch: LP-0000"
@@ -196,13 +198,32 @@ if port --map "$tmp/map/pg18/map"; then
   else fail port_map_neon_and_skip "$(git -C "$wk" log --format=%s -5) $(cat "$tmp/log")"; fi
 else fail port_map_neon_and_skip "$(cat "$tmp/log")"; fi
 
+# Our own commits, as mboxes: one before c0, one after the series.
+port_setup clean
+c0=$(src "c0:")
+rm -rf "$tmp/res"; git init -q "$tmp/res"
+( cd "$tmp/res"; git fetch -q "$tmp/up" REL_18_6 && git checkout -q FETCH_HEAD
+  echo pre > pre.c; git add pre.c; git commit -q -m "pre: before the series" -m "Loams-Patch: LP-0098"
+  git format-patch -q -1 --stdout > "$tmp/map/pg18/pre.mbox"
+  echo post > post.c; git add post.c; git commit -q -m "post: after the series" -m "Loams-Patch: LP-0097"
+  git format-patch -q -1 --stdout > "$tmp/map/pg18/post.mbox" )
+printf '%s before pre.mbox\nend post.mbox\n' "$c0" > "$tmp/map/pg18/map"
+if port --map "$tmp/map/pg18/map" --push && port --map "$tmp/map/pg18/map" --push; then
+  if [ "$(subjects loams/port-pg18)" = "pre: before the series|c0: neon feature|c1: neon smgr hook|side|c2: governance|post: after the series|" ] &&
+     [[ $(git -C "$tmp/fork" log -1 --format=%B --grep='^pre:' loams/port-pg18) == *"Loams-Patch: LP-0098"* ]] &&
+     grep -q 'done  extra pre.mbox' "$tmp/log"; then
+    ok port_map_extra_commits
+  else fail port_map_extra_commits "$(subjects loams/port-pg18) $(cat "$tmp/log")"; fi
+else fail port_map_extra_commits "$(cat "$tmp/log")"; fi
+
 # Two conflicting commits: --keep-going lists both and still fails.
 port_setup conflict
 ( cd "$tmp/up"; git checkout -q REL_18_STABLE; git tag -d REL_18_6 > /dev/null
   printf 'X\n' > SECURITY.md; git add SECURITY.md; git commit -q -m sec18; git tag REL_18_6 )
 if port --keep-going; then fail port_keep_going_lists_all "no conflict reported"
 elif [ "$(cut -d' ' -f1 "$tmp/out/conflicting.txt" | tr '\n' ' ')" = "$(src "c1:") $(src "c2:") " ] &&
-     [ -f "$tmp/out/conflicts/1-$(src "c1:")/conflicts.txt" ]; then
+     [ -f "$tmp/out/conflicts/1-$(src "c1:")/conflicts.txt" ] && [ -f "$tmp/out/summary.txt" ] &&
+     [ -f "$tmp/out/conflicts/1-$(src "c1:")/files/theirs/zz_gone.c" ]; then
   ok port_keep_going_lists_all
 else fail port_keep_going_lists_all "$(cat "$tmp/out/conflicting.txt" 2> /dev/null) $(cat "$tmp/log")"; fi
 if port --keep-going --push; then fail port_bad_args_refused "--keep-going with --push"; fi
