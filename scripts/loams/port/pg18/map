@@ -50,3 +50,4 @@ b4357e322970eebb5d9bb303387fe819aee8e452 resolve b4357e3229.resolve
 be63d48593dbe9cc824e9f6d116098866dedfcfa resolve be63d48593.resolve
 # Combocid in WAL: the redo half (fix_infomask_from_infobits) lives in heapam_xlog.c at 18.
 0e6c1d4c3f04fa193c9aba07693339885b9e31da resolve 0e6c1d4c3f.resolve
+9536f8ea967ffd11a1fbfd0d92894076cd55d14d resolve 9536f8ea96.resolve
