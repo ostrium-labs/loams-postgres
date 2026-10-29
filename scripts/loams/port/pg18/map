@@ -73,3 +73,4 @@ b763ab54b98d232a0959371ab1d07f06ed77c49e resolve b763ab54b9.resolve
 353c725b0c76cc82b15af21d8360d03391dc6814 resolve 353c725b0c.resolve
 # Build fixes for call sites 18.6 added (LP-0038).
 end build-fixes-18.6.mbox
+end read-stream-smgr.mbox

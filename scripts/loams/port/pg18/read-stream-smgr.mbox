@@ -1,0 +1,35 @@
+From 436792ce37cf3ff041757fdba7f40b1996a5ca01 Mon Sep 17 00:00:00 2001
+From: Dinakaran <dinakaranvijayakumar@outlook.com>
+Date: Thu, 29 Oct 2026 14:02:04 +0530
+Subject: [PATCH] loams-pg18: the read stream keeps the smgr it is given
+
+The port of 65c4e46baf (no readahead assumption for temporary
+relations) carried 17's "smgr = RelationGetSmgr(rel);" into 18's
+read_stream_begin_impl(), which takes the smgr as an argument and has
+no relation for smgr-only streams (read_stream_begin_smgr_relation, as
+CREATE DATABASE's RelationCopyStorageUsingBuffer uses): a NULL
+dereference. The line goes; the temporary-relation check uses the
+persistence argument.
+
+Loams-Patch: LP-0038
+Signed-off-by: Dinakaran <dinakaranvijayakumar@outlook.com>
+---
+ src/backend/storage/aio/read_stream.c | 2 --
+ 1 file changed, 2 deletions(-)
+
+diff --git a/src/backend/storage/aio/read_stream.c b/src/backend/storage/aio/read_stream.c
+index 3daaad6..043c2b2 100644
+--- a/src/backend/storage/aio/read_stream.c
++++ b/src/backend/storage/aio/read_stream.c
+@@ -568,8 +568,6 @@ read_stream_begin_impl(int flags,
+ 	uint32		max_possible_buffer_limit;
+ 	Oid			tablespace_id;
+ 
+-	smgr = RelationGetSmgr(rel);
+-
+ 	/*
+ 	 * Reject attempts to read non-local temporary relations; we would be
+ 	 * likely to get wrong data since we have no visibility into the owning
+-- 
+2.55.0
+
