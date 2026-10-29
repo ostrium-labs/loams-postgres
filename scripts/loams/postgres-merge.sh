@@ -211,6 +211,20 @@ port_main() {
     git am --abort > /dev/null 2>&1 || git reset -q --hard HEAD
     return 1
   }
+  # A cherry-pick in the blobless clone; when the batched lazy fetch of missing
+  # blobs fails (GitHub answers "not our ref" for a batch that one object at a
+  # time serves), fetch them one by one and try again.
+  port_pick() {
+    local try oid
+    for try in 1 2 3; do
+      git cherry-pick --no-commit "$1" > "$out/apply.err" 2>&1 && return 0
+      grep -q 'not our ref\|promisor remote' "$out/apply.err" || return 1
+      echo "  refetch ($try) for $1: $(grep -oE '[0-9a-f]{40}' "$out/apply.err" | sort -u | tr '\n' ' ')"
+      for oid in $(grep -oE '[0-9a-f]{40}' "$out/apply.err" | sort -u); do git cat-file -t "$oid" > /dev/null 2>&1 || true; done
+      git reset -q --hard HEAD; rm -f .git/CHERRY_PICK_HEAD
+    done
+    return 1
+  }
   for c in "${series[@]}"; do
     i=$((i + 1))
     subj=$(git log -1 --format=%s "$c")
@@ -229,8 +243,8 @@ port_main() {
       skip)
         echo "skip  $c $subj: ${cnote[$c]}"
         echo "$c skip $subj (${cnote[$c]})" >> "$out/series.txt"; n_skip=$((n_skip + 1)); continue ;;
-      pick) git cherry-pick --no-commit "$c" > "$out/apply.err" 2>&1 || status=conflict ;;
-      neon) src=${carg[$c]}; git cherry-pick --no-commit "$src" > "$out/apply.err" 2>&1 || status=conflict ;;
+      pick) port_pick "$c" || status=conflict ;;
+      neon) src=${carg[$c]}; port_pick "$src" || status=conflict ;;
       patch) git apply --index --3way "$mapdir/${carg[$c]}" > "$out/apply.err" 2>&1 || status=conflict ;;
       resolve)
         # Cherry-pick as usual (a 3-way merge, so clean files apply as they would
