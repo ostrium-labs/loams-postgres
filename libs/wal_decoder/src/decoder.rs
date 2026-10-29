@@ -26,13 +26,6 @@ impl InterpretedWalRecord {
         next_record_lsn: Lsn,
         pg_version: PgMajorVersion,
     ) -> anyhow::Result<HashMap<ShardIdentity, InterpretedWalRecord>> {
-        // Postgres 18's bindings exist (Loams-Patch LP-0040), but its commit
-        // records carry 16-byte stats items: until the decoder walks them
-        // (LP-0041, NF2 Task 5), an 18 record is an error, never decoded with
-        // 17's layout.
-        if pg_version >= PgMajorVersion::PG18 {
-            anyhow::bail!("decoding Postgres {pg_version} WAL is not supported yet");
-        }
         let mut decoded = DecodedWALRecord::default();
         decode_wal_record(buf, &mut decoded, pg_version)?;
         let xid = decoded.xl_xid;
@@ -107,7 +100,7 @@ impl MetadataRecord {
             }
             pg_constants::RM_CLOG_ID => Self::decode_clog_record(&mut buf, decoded, pg_version)?,
             pg_constants::RM_XACT_ID => {
-                Self::decode_xact_record(&mut buf, decoded, next_record_lsn)?
+                Self::decode_xact_record(&mut buf, decoded, next_record_lsn, pg_version)?
             }
             pg_constants::RM_MULTIXACT_ID => {
                 Self::decode_multixact_record(&mut buf, decoded, pg_version)?
@@ -128,9 +121,21 @@ impl MetadataRecord {
             }
             pg_constants::RM_STANDBY_ID => Self::decode_standby_record(&mut buf, decoded)?,
             pg_constants::RM_REPLORIGIN_ID => Self::decode_replorigin_record(&mut buf, decoded)?,
-            _unexpected => {
-                // TODO: consider failing here instead of blindly doing something without
-                // understanding the protocol
+            rmid => {
+                // From 18 on, a resource manager that the major does not have
+                // (rmgrlist.h ends at RM_LOGICALMSG_ID) and that is not Neon's
+                // is an error, never skipped (Loams-Patch LP-0041). 14 to 17
+                // keep upstream Neon's behaviour.
+                // TODO: consider failing here for every major.
+                if pg_version >= PgMajorVersion::PG18
+                    && rmid > pg_constants::RM_LOGICALMSG_ID
+                    && rmid != pg_constants::RM_NEON_ID
+                {
+                    anyhow::bail!(
+                        "unknown resource manager {rmid} in a Postgres {} record",
+                        pg_version.major_version_num()
+                    );
+                }
                 None
             }
         };
@@ -793,13 +798,14 @@ impl MetadataRecord {
         buf: &mut Bytes,
         decoded: &DecodedWALRecord,
         lsn: Lsn,
+        pg_version: PgMajorVersion,
     ) -> anyhow::Result<Option<MetadataRecord>> {
         let info = decoded.xl_info & pg_constants::XLOG_XACT_OPMASK;
         let origin_id = decoded.origin_id;
         let xl_xid = decoded.xl_xid;
 
         if info == pg_constants::XLOG_XACT_COMMIT {
-            let parsed = XlXactParsedRecord::decode(buf, decoded.xl_xid, decoded.xl_info);
+            let parsed = XlXactParsedRecord::decode(buf, decoded.xl_xid, decoded.xl_info, pg_version);
             return Ok(Some(MetadataRecord::Xact(XactRecord::Commit(XactCommon {
                 parsed,
                 origin_id,
@@ -807,7 +813,7 @@ impl MetadataRecord {
                 lsn,
             }))));
         } else if info == pg_constants::XLOG_XACT_ABORT {
-            let parsed = XlXactParsedRecord::decode(buf, decoded.xl_xid, decoded.xl_info);
+            let parsed = XlXactParsedRecord::decode(buf, decoded.xl_xid, decoded.xl_info, pg_version);
             return Ok(Some(MetadataRecord::Xact(XactRecord::Abort(XactCommon {
                 parsed,
                 origin_id,
@@ -815,7 +821,7 @@ impl MetadataRecord {
                 lsn,
             }))));
         } else if info == pg_constants::XLOG_XACT_COMMIT_PREPARED {
-            let parsed = XlXactParsedRecord::decode(buf, decoded.xl_xid, decoded.xl_info);
+            let parsed = XlXactParsedRecord::decode(buf, decoded.xl_xid, decoded.xl_info, pg_version);
             return Ok(Some(MetadataRecord::Xact(XactRecord::CommitPrepared(
                 XactCommon {
                     parsed,
@@ -825,7 +831,7 @@ impl MetadataRecord {
                 },
             ))));
         } else if info == pg_constants::XLOG_XACT_ABORT_PREPARED {
-            let parsed = XlXactParsedRecord::decode(buf, decoded.xl_xid, decoded.xl_info);
+            let parsed = XlXactParsedRecord::decode(buf, decoded.xl_xid, decoded.xl_info, pg_version);
             return Ok(Some(MetadataRecord::Xact(XactRecord::AbortPrepared(
                 XactCommon {
                     parsed,

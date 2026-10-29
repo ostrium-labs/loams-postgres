@@ -164,7 +164,7 @@ impl Planner {
     ///
     /// This function is and must remain pure: given the same input, it will generate the same import plan.
     async fn plan(mut self, import_config: &TimelineImportConfig) -> anyhow::Result<Plan> {
-        let pgdata_lsn = Lsn(self.control_file.control_file_data().checkPoint).align();
+        let pgdata_lsn = self.control_file.base_lsn();
         anyhow::ensure!(pgdata_lsn.is_valid());
 
         let datadir = PgDataDir::new(&self.storage).await?;
@@ -223,11 +223,7 @@ impl Planner {
                 self.control_file.control_file_buf().clone(),
             )));
 
-        let checkpoint_buf = self
-            .control_file
-            .control_file_data()
-            .checkPointCopy
-            .encode()?;
+        let checkpoint_buf = self.control_file.checkpoint_bytes().clone();
         self.tasks
             .push(AnyImportTask::SingleKey(ImportSingleKeyTask::new(
                 CHECKPOINT_KEY,

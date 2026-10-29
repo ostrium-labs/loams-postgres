@@ -2,6 +2,12 @@ use crate::PgMajorVersion;
 
 pub const MY_PGVERSION: PgMajorVersion = PgMajorVersion::PG14;
 
+/// CATALOG_VERSION_NO (catalog/catversion.h); fixed for a major once it is released.
+pub const CATALOG_VERSION_NO: u32 = 202107181;
+
+/// sizeof(xl_xact_stats_item) (15 to 17; 14 has no dropped-stats section).
+pub const SIZEOF_XL_XACT_STATS_ITEM: usize = 12;
+
 pub const XLOG_DBASE_CREATE: u8 = 0x00;
 pub const XLOG_DBASE_DROP: u8 = 0x10;
 
@@ -38,4 +44,9 @@ pub const PGDATA_SUBDIRS: [&str; 22] = [
 
 pub fn bkpimg_is_compressed(bimg_info: u8) -> bool {
     (bimg_info & BKPIMAGE_IS_COMPRESSED) != 0
+}
+
+/// `default_char_signedness` is in the control file from 18 on.
+pub fn default_char_signedness(_cf: &ControlFileData) -> Option<bool> {
+    None
 }

@@ -2,6 +2,9 @@ use crate::PgMajorVersion;
 
 pub const MY_PGVERSION: PgMajorVersion = PgMajorVersion::PG18;
 
+/// CATALOG_VERSION_NO (catalog/catversion.h); fixed for a major once it is released.
+pub const CATALOG_VERSION_NO: u32 = 202506291;
+
 // Postgres 18 (REL_18_6). The constants below match the headers; the test
 // pg_constants_v18_match_headers compares them with bindgen's reading of
 // access/xact.h, access/xlogrecord.h, access/heapam_xlog.h,
@@ -68,3 +71,9 @@ pub const XLOG_HEAP2_PRUNE_VACUUM_CLEANUP: u8 = 0x30;
 
 pub const XLOG_OVERWRITE_CONTRECORD: u8 = 0xD0;
 pub const XLOG_CHECKPOINT_REDO: u8 = 0xE0;
+
+/// `default_char_signedness`, which the control file has from 18 on
+/// (`44fe30fdab`). The pageserver keeps initdb's value; it never resets it.
+pub fn default_char_signedness(cf: &ControlFileData) -> Option<bool> {
+    Some(cf.default_char_signedness)
+}

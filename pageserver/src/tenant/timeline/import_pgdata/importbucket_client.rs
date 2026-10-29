@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use bytes::Bytes;
-use postgres_ffi::{ControlFileData, PgMajorVersion};
+use postgres_ffi::{ControlFileInfo, PgMajorVersion};
 use remote_storage::{
     Download, DownloadError, DownloadKind, DownloadOpts, GenericRemoteStorage, Listing,
     ListingObject, RemotePath, RemoteStorageConfig,
@@ -246,45 +246,33 @@ impl RemoteStorageWrapper {
 }
 
 pub struct ControlFile {
-    control_file_data: ControlFileData,
+    info: ControlFileInfo,
     control_file_buf: Bytes,
 }
 
 impl ControlFile {
+    /// Decode with the layout of the major its catalog version names (18 moved
+    /// the CRC), and refuse a data directory with data checksums on, with the
+    /// reason `import_checksums_enabled` (D1111, Loams-Patch LP-0041).
     pub(crate) fn new(control_file_buf: Bytes) -> Result<Self, anyhow::Error> {
-        // XXX ControlFileData is version-specific, we're always using v14 here. v17 had changes.
-        let control_file_data = ControlFileData::decode(&control_file_buf)?;
-        let control_file = ControlFile {
-            control_file_data,
+        let info = ControlFileInfo::decode_any(&control_file_buf)?;
+        info.check_importable()?;
+        Ok(ControlFile {
+            info,
             control_file_buf,
-        };
-        control_file.try_pg_version()?; // so that we can offer infallible pg_version()
-        Ok(control_file)
+        })
     }
     pub(crate) fn base_lsn(&self) -> Lsn {
-        Lsn(self.control_file_data.checkPoint).align()
+        Lsn(self.info.check_point).align()
     }
     pub(crate) fn pg_version(&self) -> PgMajorVersion {
-        self.try_pg_version()
-            .expect("prepare() checks that try_pg_version doesn't error")
+        self.info.pg_version
     }
-    pub(crate) fn control_file_data(&self) -> &ControlFileData {
-        &self.control_file_data
+    /// `checkPointCopy`, encoded with the major's layout.
+    pub(crate) fn checkpoint_bytes(&self) -> &Bytes {
+        &self.info.checkpoint_bytes
     }
     pub(crate) fn control_file_buf(&self) -> &Bytes {
         &self.control_file_buf
-    }
-
-    fn try_pg_version(&self) -> anyhow::Result<PgMajorVersion> {
-        Ok(match self.control_file_data.catalog_version_no {
-            // thesea are from catversion.h
-            202107181 => PgMajorVersion::PG14,
-            202209061 => PgMajorVersion::PG15,
-            202307071 => PgMajorVersion::PG16,
-            202406281 => PgMajorVersion::PG17,
-            catversion => {
-                anyhow::bail!("unrecognized catalog version {catversion}")
-            }
-        })
     }
 }
