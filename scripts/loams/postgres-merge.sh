@@ -255,9 +255,11 @@ port_main() {
       local miss t
       for miss in $(grep -oE '[0-9a-f]{40}' "$out/apply.err" | sort -u); do
         for t in HEAD "$c^" "$c" "$base_sha"; do
-          git ls-tree -r "$t" 2> /dev/null | grep "$miss" | sed "s/^/  missing $miss in $t: /" || true
+          git ls-tree -r -t "$t" 2> /dev/null | grep "$miss" | sed "s/^/  missing $miss in $t: /" || true
         done
+        echo "  missing $miss: type $(git cat-file -t "$miss" 2>&1 | head -1); in the parent-17 tree of $c: $(git ls-tree -r -t "$c^" | grep -c "$miss")"
       done
+      echo "  trees: HEAD $(git rev-parse HEAD^{tree}) c^ $(git rev-parse "$c^^{tree}") c $(git rev-parse "$c^{tree}")"
     fi
     rm -f "$out/apply.err"
     if [ "$status" = conflict ]; then
