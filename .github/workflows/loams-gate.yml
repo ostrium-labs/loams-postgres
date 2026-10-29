@@ -7,22 +7,30 @@
 #       compute_tools and the pageserver; the pageserver's unit tests once per
 #       virtual-file I/O engine (std-fs, tokio-epoll-uring).
 #   G2  Neon's test_runner with neon_local on scripts/loams/gate-subset.txt,
-#       once per Postgres major Loams pins (supported, maintenance and beta).
+#       one leg per Postgres major in Loams' pin file (supported, maintenance
+#       and beta), plus a major built here that is newer than every pinned one
+#       (`gate.py legs`; NF2 Task 7, design §62 §8, D1118). A beta (or not yet
+#       pinned) leg is advisory: it may fail without failing the gate, so a
+#       broken beta never blocks another major's release; the input own-majors
+#       makes it required, for a release of that major's own images. The job
+#       `g2-upgrade` is Path 1 from each supported major to the next (its body
+#       lands with NF2 Task 13); a pair whose target is not built here is
+#       skipped with the reason in the run's summary.
 #   G3  Loams' integration on a release candidate: the candidate's pin document
 #       goes to ostrium-labs/loams nf1-candidate.yml, which runs Loams'
 #       Postgres e2e jobs, the WAL decoder's golden tests and an extension
 #       smoke on those images, and reports `loams-gate / g3` on this commit.
 #
-# When (owner, 2026-10-16, Q721): nightly, on every release (loams-release.yml
-# calls G0 to G2 before it builds and G3 before it tags), and by hand. Not on
-# pull requests: those run the light checks (hygiene, patches, dco), which are
-# the required checks on main. Every job is on a standard GitHub-hosted runner
+# When: on every release (loams-release.yml calls G0 to G2 before it builds
+# and G3 before it tags) and by hand. Never on pull requests (owner,
+# 2026-10-16): those run the light checks (hygiene, patches, dco), which are
+# the required checks on main. Never on a schedule either (owner, 2026-10-28:
+# no nightlies on GitHub CI; the nightly of Q721 runs locally). Every job is on a standard GitHub-hosted runner
 # (free for a public repository), or vars.RUNNER_HEAVY for G1 and G2.
 #
 # The organisation shares one concurrent-job limit with Loams' CI, so at most
 # two heavy jobs run at once (G1 beside G2's build, then the G2 majors two at a
-# time), the nightly starts at 21:07 UTC, away from Loams' nightly (02:17), and
-# only one gate runs per caller and ref (a newer nightly or dispatch cancels
+# time), and only one gate runs per caller and ref (a newer dispatch cancels
 # the older one; a release's calls queue).
 #
 # A failing tier fails the job `gate` (scripts/loams/gate.py verdict). A known
@@ -30,14 +38,16 @@
 name: loams-gate
 
 on:
-  schedule:
-    - cron: "7 21 * * *"
   workflow_dispatch:
     inputs:
       tiers:
         description: "Tiers to run, comma-separated (g0,g1,g2,g3)"
         type: string
         default: "g0,g1,g2"
+      own-majors:
+        description: "Majors whose own images this run gates, comma-separated: their beta legs are required"
+        type: string
+        default: ""
       candidate-pins:
         description: "G3 only: the candidate's pin document (TOML), as release-notes.py pin-doc writes it"
         type: string
@@ -47,6 +57,9 @@ on:
       tiers:
         type: string
         default: "g0,g1,g2"
+      own-majors:
+        type: string
+        default: ""
       candidate-pins:
         type: string
         default: ""
@@ -59,7 +72,7 @@ permissions:
 
 concurrency:
   # One gate at a time per caller and ref: the organisation's concurrent-job
-  # limit is shared with Loams' CI. A newer nightly or dispatch cancels the
+  # limit is shared with Loams' CI. A newer dispatch cancels the
   # older one; a release's calls (github.workflow is then the caller's name)
   # queue and are never cancelled.
   group: loams-gate-${{ github.workflow }}-${{ github.ref }}
@@ -67,6 +80,7 @@ concurrency:
 
 env:
   TIERS: ${{ inputs.tiers || 'g0,g1,g2' }}
+  OWN_MAJORS: ${{ inputs.own-majors }}
   # actionlint 1.7.7 (2025-01-19), checked by sha256.
   ACTIONLINT_URL: https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz
   ACTIONLINT_SHA256: 023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757
@@ -80,31 +94,41 @@ jobs:
     timeout-minutes: 5
     outputs:
       tiers: ${{ steps.plan.outputs.tiers }}
-      majors: ${{ steps.plan.outputs.majors }}
+      legs: ${{ steps.plan.outputs.legs }}
+      upgrade: ${{ steps.plan.outputs.upgrade }}
+      may-skip: ${{ steps.plan.outputs.may-skip }}
       build-tools: ${{ steps.plan.outputs.build-tools }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
-      - name: Tiers, majors and the build-tools image
+      - name: Tiers, G2's legs and the build-tools image
         id: plan
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           echo "tiers=$(python3 -I scripts/loams/gate.py tiers --tiers "$TIERS")" >> "$GITHUB_OUTPUT"
-          # The majors Loams pins (as loams-build-compute.yml): G2 runs once per major.
+          # The majors of Loams' pin file, as the release and loams-build-compute.yml
+          # read it: G2 runs one leg per major (gate.py legs; NF2 Task 7, D1118).
           gh api repos/ostrium-labs/loams/contents/deploy/pins/loams-postgres-images.toml \
             -H 'Accept: application/vnd.github.raw' > "$RUNNER_TEMP/pins.toml"
-          majors=$(python3 -I scripts/loams/compute-matrix.py --pins "$RUNNER_TEMP/pins.toml" --sha "$GITHUB_SHA" \
-            | sed -n 's/^majors=//p' | jq -c '[.[].pg]')
-          echo "majors=$majors" >> "$GITHUB_OUTPUT"
+          python3 -I scripts/loams/gate.py legs --pins "$RUNNER_TEMP/pins.toml" --own-majors "$OWN_MAJORS" \
+            | tee "$RUNNER_TEMP/legs.out" >> "$GITHUB_OUTPUT"
+          legs=$(sed -n 's/^legs=//p' "$RUNNER_TEMP/legs.out")
+          {
+            echo "G2 legs: $(jq -r 'map("\(.major) (\(.status)\(if .advisory then ", advisory" else "" end))") | join(", ")' <<<"$legs")"
+            jq -r '.[] | "upgrade \(.from) -> \(.to): skipped: \(.reason)"' <<<"$(sed -n 's/^upgrade-skipped=//p' "$RUNNER_TEMP/legs.out")"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          while read -r r; do
+            [ -n "$r" ] && echo "::notice title=g2-upgrade::$r"
+          done < <(jq -r '.[] | "Path 1 \(.from) -> \(.to) skipped: \(.reason)"' <<<"$(sed -n 's/^upgrade-skipped=//p' "$RUNNER_TEMP/legs.out")")
           # The images' builder, pinned by digest in the Dockerfile (LP-0009).
           tools=$(sed -n 's/^ARG BUILD_TOOLS=//p' Dockerfile)
           [[ $tools =~ ^ghcr\.io/ostrium-labs/loams-postgres-build-tools@sha256:[0-9a-f]{64}$ ]] \
             || { echo "unexpected BUILD_TOOLS in the Dockerfile: $tools"; exit 1; }
           echo "build-tools=$tools" >> "$GITHUB_OUTPUT"
-          echo "tiers $TIERS; majors $majors; $tools" >> "$GITHUB_STEP_SUMMARY"
+          echo "tiers $TIERS; own majors ${OWN_MAJORS:-none}; $tools" >> "$GITHUB_STEP_SUMMARY"
 
   # ---- G0 ----
   g0-hygiene:
@@ -273,11 +297,14 @@ jobs:
       fail-fast: false
       max-parallel: 2
       matrix:
-        major: ${{ fromJSON(needs.plan.outputs.majors) }}
-    name: g2 (pg${{ matrix.major }})
+        leg: ${{ fromJSON(needs.plan.outputs.legs) }}
+    # A beta leg is advisory unless own-majors names it (D1118): it may fail
+    # without failing this job, so the gate stays green for the other majors.
+    continue-on-error: ${{ matrix.leg.advisory }}
+    name: g2 (pg${{ matrix.leg.major }}, ${{ matrix.leg.status }}${{ matrix.leg.advisory && ', advisory' || '' }})
     env:
       BUILD_TOOLS: ${{ needs.plan.outputs.build-tools }}
-      MAJOR: ${{ matrix.major }}
+      MAJOR: ${{ matrix.leg.major }}
     steps:
       - name: Free disk (the runner's unused toolchains)
         run: |
@@ -303,10 +330,10 @@ jobs:
         with:
           path: ${{ runner.temp }}/home/cache
           key: loams-gate-poetry-${{ hashFiles('poetry.lock') }}
-      - name: test_runner on the subset, Postgres ${{ matrix.major }}
+      - name: test_runner on the subset, Postgres ${{ matrix.leg.major }}
         run: scripts/loams/gate-docker.sh g2 "$MAJOR"
       - name: Save the Python environment
-        if: always() && github.ref == 'refs/heads/main' && matrix.major == fromJSON(needs.plan.outputs.majors)[0]
+        if: always() && github.ref == 'refs/heads/main' && matrix.leg.major == fromJSON(needs.plan.outputs.legs)[0].major
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/home/cache
@@ -315,10 +342,38 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: loams-gate-g2-pg${{ matrix.major }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: loams-gate-g2-pg${{ matrix.leg.major }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: test_output/
           retention-days: 7
           if-no-files-found: ignore
+
+  # Path 1 from each supported major to the next (design §62 §8; D1115). The
+  # pairs come from gate.py legs: a pair whose target major is not built here
+  # is not run (the plan's summary and a notice give the reason), and with no
+  # pair at all this job is skipped, which the verdict allows (may-skip). Its
+  # body lands with NF2 Task 13: until then gate.sh upgrade fails, so a pair
+  # that does run is red, never a pass (advisory while the target is beta).
+  g2-upgrade:
+    needs: [plan, g2-build]
+    if: fromJSON(needs.plan.outputs.tiers).g2 && needs.plan.outputs.upgrade != '[]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        leg: ${{ fromJSON(needs.plan.outputs.upgrade) }}
+    continue-on-error: ${{ matrix.leg.advisory }}
+    name: g2-upgrade (pg${{ matrix.leg.from }} to pg${{ matrix.leg.to }}${{ matrix.leg.advisory && ', advisory' || '' }})
+    env:
+      FROM: ${{ matrix.leg.from }}
+      TO: ${{ matrix.leg.to }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Path 1, Postgres ${{ matrix.leg.from }} to ${{ matrix.leg.to }}
+        run: scripts/loams/gate.sh upgrade "$FROM" "$TO"
 
   # ---- G3 ----
   g3:
@@ -337,7 +392,7 @@ jobs:
         run: scripts/loams/gate-g3.sh "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
 
   gate:
-    needs: [plan, g0-hygiene, g0-patches, g0-dco, g0-lint, g1, g2-build, g2, g3]
+    needs: [plan, g0-hygiene, g0-patches, g0-dco, g0-lint, g1, g2-build, g2, g2-upgrade, g3]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -348,7 +403,9 @@ jobs:
       - name: Every requested tier is green (gate_fails_on_red_tier)
         env:
           NEEDS: ${{ toJSON(needs) }}
+          MAY_SKIP: ${{ needs.plan.outputs.may-skip || '[]' }}
         run: |
           set -euo pipefail
           [ "$(jq -r .plan.result <<<"$NEEDS")" = success ] || { echo "the plan job failed"; exit 1; }
-          python3 -I scripts/loams/gate.py verdict --tiers "$TIERS" --needs "$(jq -c 'del(.plan)' <<<"$NEEDS")"
+          python3 -I scripts/loams/gate.py verdict --tiers "$TIERS" --needs "$(jq -c 'del(.plan)' <<<"$NEEDS")" \
+            --may-skip "$MAY_SKIP"
