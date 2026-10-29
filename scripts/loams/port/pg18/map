@@ -15,3 +15,12 @@ e1b32d7395030055bfe59d6707f8e7aaabeb8915 before vm-format-d1112.mbox
 # Neon's own 18 fix: no invalidation processing during WAL redo (NF2 Task 1 F26). It needs
 # am_wal_redo_postgres, which the series adds, so it goes last.
 end neon-inplace-inval-guard.mbox
+
+# Conflicts, resolved in series order (NF2 Task 2):
+# 18 rewrote autoprewarm onto the read stream (which prefetches through the smgr), so Neon's 17
+# prefetch for it is superseded.
+866fd7c0c9564ea4d53071bd3d0aa51dd2f4edda skip superseded at 18: autoprewarm uses the read stream, which prefetches through smgrprefetch/StartReadBuffers
+# Our smgr hook API (not Neon's 18 "register new SMgrs" API, which our pgxn/neon does not use) on 18's
+# smgr: f_smgr gains 18's smgr_maxcombine, smgr_startreadv, smgr_fd and 4-argument smgr_truncate;
+# FlushLocalBuffer replaces the victim write in GetLocalVictimBuffer.
+bd09a752f4c2556ba2722510e7196136cc266c43 patch bd09a752f4.patch
