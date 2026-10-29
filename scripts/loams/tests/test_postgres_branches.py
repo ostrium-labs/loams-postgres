@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Tests for scripts/loams/check-postgres-branches.py (LP-0014, NF1 Task 15).
+"""Tests for scripts/loams/check-postgres-branches.py (LP-0014, NF1 Task 15;
+loams/pg18 from REL_18_6 in LP-0035, NF2 Task 2).
 
 The GitHub API is replaced by a fake built from a dict; nothing goes to the
 network. The live check runs in loams-hygiene.yml.
@@ -23,7 +24,7 @@ PROTECTED = [{"type": "non_fast_forward"}, {"type": "deletion"}]
 FROZEN = [{"type": "update"}, {"type": "non_fast_forward"}, {"type": "deletion"}]
 
 
-def layout(majors=(16, 17)):
+def layout(majors=(16, 17, 18)):
     """API answers for a correct layout."""
     api = {}
     for n in majors:
@@ -41,7 +42,7 @@ def layout(majors=(16, 17)):
     return api
 
 
-def run(api, majors=(16, 17)):
+def run(api, majors=(16, 17, 18)):
     return cpb.check_branches(api.get, REPO, list(majors))
 
 
@@ -60,7 +61,23 @@ class BranchesExistAndProtected(unittest.TestCase):
         self.assertIn("does not descend from a42351fc", "\n".join(run(api)))
 
     def test_major_without_a_base_fails(self):
-        self.assertEqual(run(layout(), majors=(18,)), ["loams/pg18: no pinned base revision for Postgres 18"])
+        self.assertEqual(run(layout(), majors=(19,)), ["loams/pg19: no pinned base revision for Postgres 19"])
+
+    def test_pg18_starts_at_rel_18_6(self):
+        self.assertEqual(cpb.BASES[18], "724edf9bde9d356724ad384a2e196edc3c9f80f7")
+        api = layout()
+        api[f"/repos/{REPO}/compare/{cpb.BASES[18]}...{cpb.q('loams/pg18')}"]["behind_by"] = 1
+        self.assertEqual(run(api), ["loams/pg18: does not descend from 724edf9b (1 commits behind)"])
+
+    def test_pg18_missing_fails(self):
+        api = layout()
+        del api[f"/repos/{REPO}/branches/{cpb.q('loams/pg18')}"]
+        self.assertEqual(run(api), [f"loams/pg18: missing in {REPO}"])
+
+    def test_pg18_unprotected_fails(self):
+        api = layout()
+        api[f"/repos/{REPO}/rules/branches/{cpb.q('loams/pg18')}"] = []
+        self.assertEqual(run(api), ["loams/pg18: not protected against deletion, non_fast_forward"])
 
     def test_missing_security_file_fails(self):
         api = layout()
@@ -102,6 +119,17 @@ class SubmoduleUrlRelative(unittest.TestCase):
                '\turl = ../postgres.git\n\tbranch = loams/REL_16_STABLE\n'
         self.assertEqual(cpb.check_gitmodules(text),
                          [".gitmodules: submodule \"vendor/postgres-v16\" tracks 'loams/REL_16_STABLE', not 'loams/pg16'"])
+
+    def test_pg18_submodule_tracks_loams_pg18(self):
+        text = '[submodule "vendor/postgres-v18"]\n\tpath = vendor/postgres-v18\n' \
+               '\turl = ../postgres.git\n\tbranch = REL_18_STABLE_neon\n'
+        self.assertEqual(cpb.check_gitmodules(text),
+                         [".gitmodules: submodule \"vendor/postgres-v18\" tracks 'REL_18_STABLE_neon', not 'loams/pg18'"])
+
+    def test_tracked_majors_come_from_gitmodules(self):
+        text = ''.join(f'[submodule "vendor/postgres-v{n}"]\n\tpath = vendor/postgres-v{n}\n\turl = ../postgres.git\n'
+                       f'\tbranch = {b}\n' for n, b in ((14, "REL_14_STABLE_neon"), (17, "loams/pg17"), (18, "loams/pg18")))
+        self.assertEqual(cpb.tracked_majors(text), [17, 18])
 
     def test_no_submodules_fails(self):
         self.assertEqual(cpb.check_gitmodules(""), [".gitmodules: no submodules"])

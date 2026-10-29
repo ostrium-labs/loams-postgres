@@ -1,0 +1,76 @@
+# The port of loams/pg17 (REL_17_11..) onto REL_18_6 (LP-0035, NF2 Task 2, D1109).
+# Read by scripts/loams/postgres-merge.sh port (docs/loams/postgres-branches.md).
+# One line per series commit that does not cherry-pick as it is:
+#   <17 sha> patch <file> [note]      apply <file> (here) instead: a `git diff` against the port at that point
+#   <17 sha> neon <neon sha> [note]   take Neon's 18 version from REL_18_STABLE_neon (a reference, never a base)
+#   <17 sha> skip <reason>            leave it out
+# Every other commit is cherry-picked unchanged.
+
+c69205fae5fdb9975e2c12ab64afc743cfb32cba skip Neon's CI for its Postgres repository (.github/workflows/build.yml on REL_17_STABLE_neon); Actions are disabled on ostrium-labs/postgres, and loams-postgres-merge.yml builds and checks the port
+
+# Our own 18 commits (git format-patch mboxes, each with its own Loams-Patch id):
+# D1112 as amended 2026-10-29 (owner: "Yes, revert at 18"): no VM block references in heap
+# records at 18 (NF2 Task 1 F27). The series' custom heap records apply on top of it.
+e1b32d7395030055bfe59d6707f8e7aaabeb8915 before vm-format-d1112.mbox
+# Neon's own 18 fix: no invalidation processing during WAL redo (NF2 Task 1 F26). It needs
+# am_wal_redo_postgres, which the series adds, so it goes last.
+end neon-inplace-inval-guard.mbox
+
+# Conflicts, resolved in series order (NF2 Task 2):
+# 18 rewrote autoprewarm onto the read stream (which prefetches through the smgr), so Neon's 17
+# prefetch for it is superseded.
+866fd7c0c9564ea4d53071bd3d0aa51dd2f4edda skip superseded at 18: autoprewarm uses the read stream, which prefetches through smgrprefetch/StartReadBuffers
+# Our smgr hook API (not Neon's 18 "register new SMgrs" API, which our pgxn/neon does not use) on 18's
+# smgr: f_smgr gains 18's smgr_maxcombine, smgr_startreadv, smgr_fd and 4-argument smgr_truncate;
+# FlushLocalBuffer replaces the victim write in GetLocalVictimBuffer.
+bd09a752f4c2556ba2722510e7196136cc266c43 resolve bd09a752f4.resolve
+# Remote extension download: 18 resolves the script directory from the control file's basedir.
+700e77ebe3fd3e6f0fca1eeb7ec09330d84c985f resolve 700e77ebe3.resolve
+# --sysid: 18 uses long-option ids 20 and 21, so --sysid is 22; the checksum version is local at 18.
+98745b7f50831224851305d2d378994342b754ee resolve 98745b7f50.resolve
+# Backpressure and lag tracker: 18's prev*Ptr statics move into ProcessStandbyReply; the interrupt
+# callback runs after 18's slot-sync handling.
+feb6c004e3320845b52b282d9bd1c2131beca5b8 resolve feb6c004e3.resolve
+# Neon's custom heap records (RM_NEON_ID, t_cid) on 18's heapam.c, after the D1112 revert; 18 moved
+# heap redo to heapam_xlog.c, so the always-set page LSN in heap_xlog_visible goes there.
+e1b32d7395030055bfe59d6707f8e7aaabeb8915 resolve e1b32d7395.resolve
+# LwLsnCache: its LWLock takes the next free id at 18 (54; 18's AIO worker queue holds 53).
+379ee5fdbc7b973ffba49359c40097152b3f3b35 resolve 379ee5fdbc.resolve
+# WalRedo and startup: the wal-redo buffer guard in 18's local victim loop; neon_test_evict after 18's GUCs.
+a4e665a873220a3aa6761d2ad2c2e131827cd55f resolve a4e665a873.resolve
+# Prefetch in scans: at 18 vacuum (heap, btree, gist, spgist) and bitmap heap scans read through the read
+# stream, which prefetches through the smgr, so only index-scan prefetch remains; Neon's 18 version is that.
+19d879fb62292b07ab9ec756585ccbfe54e6ec9e neon a6f2a3666167e2b0ff35b42e0abbde366f2a6364 18 keeps index-scan prefetch only; the read stream covers vacuum and bitmap heap scans
+# Compatibility changes: 18's dispatch table gains wal-redo and sync-safekeepers (as Neon's 18 does); the
+# walproposer bgworker counts as a WAL sender in 18's child bookkeeping and returns to the bgworker pool;
+# ExplainState moved to explain_state.h; relation size through the smgr.
+b4357e322970eebb5d9bb303387fe819aee8e452 resolve b4357e3229.resolve
+# EXPLAIN (PREFETCH, FILECACHE): 18 parses EXPLAIN options in explain_state.c.
+14d522d150cea9193f323b6af27c0b8fdb795d69 resolve 14d522d150.resolve
+be63d48593dbe9cc824e9f6d116098866dedfcfa resolve be63d48593.resolve
+# Combocid in WAL: the redo half (fix_infomask_from_infobits) lives in heapam_xlog.c at 18.
+0e6c1d4c3f04fa193c9aba07693339885b9e31da resolve 0e6c1d4c3f.resolve
+9536f8ea967ffd11a1fbfd0d92894076cd55d14d resolve 9536f8ea96.resolve
+# WAL redo uses local buffers across 18's read path (AsyncReadBuffers and friends), after Neon's 18 version (neondatabase/postgres 81d4dd1ea1f1) plus 18.6's other-temp check.
+66c8d0d3a186bbd158c38461b2b71cf8e814a389 resolve 66c8d0d3a1.resolve
+dd3f30f5b5a111f22c465238b2248512acf33e39 resolve dd3f30f5b5.resolve
+# No init-fork flush in WAL redo: 18.6 factored the flush into XLogFlushBufferForRedoIfInit().
+68b5038f27e493bde6ae552fe066f10cbdfe6a14 resolve 68b5038f27.resolve
+# Custom xlog reader callbacks: 18 passes XL_ROUTINE(...) inline, so the hook runs in StartupDecodingContext only.
+3c15b6565f6c8d36d169ed9ea7412cf90cfb2a8f resolve 3c15b6565f.resolve
+# No kernel readahead under Neon: 18's read stream drops READ_STREAM_SEQUENTIAL and keeps advising sequential
+# reads, after Neon's 18 version (neondatabase/postgres 0d2528755ee8, 3fbcbf13977e).
+01fa3c48664ca030cfb69bb4a350aa9df4691d88 resolve 01fa3c4866.resolve
+# B-tree prefetch down-link check: Neon's 18 prefetch already finds the leaf from so->currPos.buf.
+010c0ea2eb06afe76485a33c43954cbcf3d99f86 resolve 010c0ea2eb.resolve
+# Temporary relations keep READ_STREAM_SEQUENTIAL (read through md.c): by persistence in 18's read_stream_begin_impl.
+65c4e46baf56ec05412c7dd63d62faff0b33dcfb resolve 65c4e46baf.resolve
+59b2fe851f8e0595f6c830b90ee766f4f1c17a0f resolve 59b2fe851f.resolve
+c9e4ff5a38907acd71107634055bf2609aba43a5 skip upstream: 18 already detects strchrnul() this way (the macOS 15.4 fix is in REL_18_6's meson.build and configure)
+b763ab54b98d232a0959371ab1d07f06ed77c49e resolve b763ab54b9.resolve
+0d59c91c1a23e667f1d1169d5f040b3fa0a0ab44 skip superseded at 18: it changes Neon's own heap-vacuum prefetch, which 18 replaces with the read stream (see 19d879fb62 above)
+# Zenith->Neon rename; WalSndDone keeps the fork's write-LSN check (the walproposer uses flush_lsn for its payload).
+353c725b0c76cc82b15af21d8360d03391dc6814 resolve 353c725b0c.resolve
+# Build fixes for call sites 18.6 added (LP-0038).
+end build-fixes-18.6.mbox
+end read-stream-smgr.mbox

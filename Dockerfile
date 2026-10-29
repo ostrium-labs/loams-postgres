@@ -57,8 +57,9 @@ COPY --chown=nonroot postgres.mk postgres.mk
 COPY --chown=nonroot scripts/ninstall.sh scripts/ninstall.sh
 
 ENV BUILD_TYPE=release
+# POSTGRES_CORE_VERSIONS (18, beta) stays out of the image until NF2 Task 8 adds /usr/local/v18.
 RUN set -e \
-    && mold -run make -j $(nproc) -s postgres
+    && mold -run make -j $(nproc) -s postgres POSTGRES_CORE_VERSIONS=
 
 # 2. Prepare cargo-chef recipe
 FROM $BUILD_TOOLS AS plan
