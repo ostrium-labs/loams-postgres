@@ -210,7 +210,7 @@ jobs:
           make check || {
             find . -name regression.diffs -exec cat {} + | head -n 400
             # The server's own log names an assertion or a crash.
-            find . -path '*tmp_check/log/*' -name '*.log' -exec sh -c 'echo "== $1"; tail -n 80 "$1"' _ {} \;
+            find . -name postmaster.log -exec sh -c 'echo "== $1"; tail -n 80 "$1"' _ {} \;
             exit 1; }
       - name: installcheck-world
         if: inputs.mode == 'port' && steps.port.outputs.complete == 'true' && (inputs.check || inputs.promote)
