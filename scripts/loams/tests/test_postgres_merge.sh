@@ -18,6 +18,8 @@
 #                                     loams/port-pg18 without re-applying, and --promote moves loams/pg18
 #   port_map_resolve_after_pick       `resolve` cherry-picks, then applies a diff from the port's
 #                                     version to the conflicted files; #keep-deleted takes a deletion
+#   port_map_resolve_keep_ours        #keep-ours keeps the port's version of a conflicted file (here
+#                                     every file, so the commit is listed as empty)
 #   port_map_neon_and_skip            `neon <sha>` takes Neon's 18 commit, `skip` leaves one out
 #   port_map_extra_commits            `before <file>` and `end <file>` add our own commits (mbox) at
 #                                     their place, once: a resumed run does not apply them again
@@ -192,7 +194,8 @@ c1=$(src "c1:")
 rm -rf "$tmp/res"; git init -q "$tmp/res"
 ( cd "$tmp/res"; printf 'a\nREADV\nc\n' > smgr.c; git add -A; git commit -q -m ours
   printf 'a\nREADV\nNEON\nc\n' > smgr.c; git add -A
-  { echo "#keep-deleted zz_gone.c"; git diff --cached; } > "$tmp/map/pg18/$c1.resolve" )
+  { echo "#keep-deleted zz_gone.c"; git diff --cached; } > "$tmp/map/pg18/$c1.resolve"
+  printf '#keep-ours smgr.c\n#keep-deleted zz_gone.c\n' > "$tmp/map/pg18/$c1.ours" )
 printf '%s resolve %s.resolve smgr hook beside 18 readv\n' "$c1" "$c1" > "$tmp/map/pg18/map"
 if port --map "$tmp/map/pg18/map" --push; then
   msg1=$(git -C "$tmp/fork" log -1 --format=%B --grep='^c1:' loams/port-pg18)
@@ -203,6 +206,14 @@ if port --map "$tmp/map/pg18/map" --push; then
     ok port_map_resolve_after_pick
   else fail port_map_resolve_after_pick "$(subjects loams/port-pg18) $(cat "$tmp/log")"; fi
 else fail port_map_resolve_after_pick "$(cat "$tmp/log")"; fi
+# #keep-ours: a conflicted file keeps the port's version.
+port_setup conflict
+c1=$(src "c1:")
+printf '%s resolve %s.ours\n' "$c1" "$c1" > "$tmp/map/pg18/map"
+if port --map "$tmp/map/pg18/map" && [ "$(git -C "$tmp/work" show HEAD:smgr.c | tr '\n' ' ')" = "a READV c " ] &&
+   grep -q '^empty .* c1: neon smgr hook' "$tmp/log"; then
+  ok port_map_resolve_keep_ours
+else fail port_map_resolve_keep_ours "$(git -C "$tmp/work" log --format=%s -4 2>&1) $(cat "$tmp/log")"; fi
 
 port_setup conflict
 c1=$(src "c1:") c0=$(src "c0:")

@@ -1,3 +1,5 @@
+#keep-ours src/backend/replication/logical/logicalfuncs.c
+#keep-ours src/backend/replication/walsender.c
 diff --git a/src/include/replication/logical.h b/src/include/replication/logical.h
 --- a/src/include/replication/logical.h
 +++ b/src/include/replication/logical.h

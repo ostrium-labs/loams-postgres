@@ -47,7 +47,8 @@
 #                                  back to the port's version and apply <file> (a
 #                                  diff from that version) to them; a line
 #                                  `#keep-deleted <path>` accepts the port's deletion
-#                                  of a file the commit modifies
+#                                  of a file the commit modifies; `#keep-ours <path>`
+#                                  keeps the port's version of a conflicted file
 #      <sha> neon <neon-sha> [note]  cherry-pick Neon's own version of the change
 #                                  from REL_<MAJOR>_STABLE_neon, with
 #                                  `(cherry picked from neondatabase/postgres <sha>)`
@@ -254,7 +255,7 @@ port_main() {
         local rf
         while IFS= read -r rf; do
           git checkout -q HEAD -- "$rf" 2> /dev/null || git rm -q --cached -f -- "$rf" > /dev/null 2>&1 || true
-        done < <(sed -nE 's#^diff --git a/(.*) b/.*$#\1#p' "$mapdir/${carg[$c]}")
+        done < <(sed -nE -e 's#^diff --git a/(.*) b/.*$#\1#p' -e 's/^#keep-ours (.+)$/\1/p' "$mapdir/${carg[$c]}")
         while IFS= read -r rf; do
           git rm -q --cached -f -- "$rf" > /dev/null 2>&1 || true; rm -f -- "$rf"
         done < <(sed -nE 's/^#keep-deleted (.+)$/\1/p' "$mapdir/${carg[$c]}")
