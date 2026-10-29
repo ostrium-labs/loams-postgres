@@ -1,8 +1,6 @@
-[![Neon](https://github.com/user-attachments/assets/fd91da5f-44a9-41c7-9075-36a5b5608083)](https://neon.com)
+# Loams Postgres
 
-
-
-# Neon
+> **Loams Postgres is a hard fork of [Neon](https://github.com/neondatabase/neon) at `fa504217` (tag `neon-fork-point`), maintained by Ostrium Labs for [Loams](https://github.com/ostrium-labs/loams).** It is independent of, and not endorsed by, Neon Inc. or Databricks. Nothing is merged from upstream. See [LOAMS.md](LOAMS.md) for the charter, the branch layout and where to send pull requests. The rest of this README is Neon's, kept as it was at the fork point; its links point at Neon's services and documentation.
 
 Neon is an open-source serverless Postgres database platform. It separates storage and compute and substitutes the PostgreSQL storage layer by redistributing data across a cluster of nodes.
 

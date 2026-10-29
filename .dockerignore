@@ -8,6 +8,12 @@
 !rust-toolchain.toml
 !scripts/ninstall.sh
 !docker-compose/run-tests.sh
+# Licences and the patch list, shipped in the images (LP-0010)
+!LICENSE
+!NOTICE
+!LOAMS_PATCHES.md
+!about.toml
+!about.hbs
 
 # Directories
 !.cargo/
@@ -21,6 +27,8 @@
 !pgxn/
 !proxy/
 !endpoint_storage/
+# A workspace member (LP-0008): without it cargo cannot load the workspace
+!fuzz/
 !storage_scrubber/
 !safekeeper/
 !storage_broker/

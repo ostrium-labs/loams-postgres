@@ -36,13 +36,15 @@ reason = "The paste crate is a build-only dependency with no runtime components.
 # https://embarkstudios.github.io/cargo-deny/checks/licenses/cfg.html
 [licenses]
 version = 2
+# No CDDL-1.0: nothing CDDL goes into a binary or image Loams Postgres publishes
+# (owner ruling 2026-10-08, LP-0003). pprof and jemalloc_pprof are built without
+# their flamegraph renderer (inferno) for that reason.
 allow = [
     "0BSD",
     "Apache-2.0",
     "BSD-2-Clause",
     "BSD-3-Clause",
     "CC0-1.0",
-    "CDDL-1.0",
     "ISC",
     "MIT",
     "MPL-2.0",
@@ -53,6 +55,8 @@ exceptions = [
     # Zlib license has some restrictions if we decide to change sth
     { allow = ["Zlib"], name = "const_format_proc_macros", version = "*" },
     { allow = ["Zlib"], name = "const_format", version = "*" },
+    # LLVM's libFuzzer, in the fuzz targets only (fuzz/, LP-0008); never in an image.
+    { allow = ["NCSA"], name = "libfuzzer-sys", version = "*" },
 ]
 
 [licenses.private]
@@ -105,7 +109,9 @@ name = "openssl"
 # https://embarkstudios.github.io/cargo-deny/checks/sources/cfg.html
 [sources]
 unknown-registry = "warn"
-unknown-git = "warn"
+# A git source outside allow-git and allow-org fails: git dependencies come from
+# our forks in ostrium-labs, pinned by rev (LP-0005), never from neondatabase.
+unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 allow-git = [
     # Crate pinned to commit in origin repo due to opentelemetry version.
@@ -115,7 +121,7 @@ allow-git = [
 
 [sources.allow-org]
 github = [
-    "neondatabase",
+    "ostrium-labs",
 ]
 gitlab = []
 bitbucket = []

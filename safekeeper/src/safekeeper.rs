@@ -512,7 +512,8 @@ impl ProposerAcceptorMessage {
                         tenant_id,
                         timeline_id,
                         mconf,
-                        pg_version: PgVersionId::from_full_pg_version(pg_version),
+                        pg_version: PgVersionId::from_full_pg_version(pg_version)
+                            .with_context(|| format!("unsupported pg_version {pg_version}"))?,
                         system_id,
                         wal_seg_size,
                     };
@@ -1770,7 +1771,7 @@ mod tests {
                 }]),
             },
             server: ServerInfo {
-                pg_version: PgVersionId::from_full_pg_version(140000),
+                pg_version: PgVersionId::from_full_pg_version(140000).unwrap(),
                 system_id: 0x1234567887654321,
                 wal_seg_size: 0x12345678,
             },

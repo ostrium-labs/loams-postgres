@@ -3,3 +3,8 @@ Copyright 2022 - 2024 Neon Inc.
 
 The PostgreSQL submodules in vendor/ are licensed under the PostgreSQL license.
 See vendor/postgres-vX/COPYRIGHT for details.
+
+Loams Postgres.
+Based on Neon by Databricks/Neon Inc. (https://github.com/neondatabase/neon), licensed under the Apache License 2.0.
+Modifications Copyright 2026 Ostrium Labs and the Loams Authors.
+Changes from Neon are listed in LOAMS_PATCHES.md.

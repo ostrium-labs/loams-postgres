@@ -9,8 +9,12 @@
 [submodule "vendor/postgres-v16"]
 	path = vendor/postgres-v16
 	url = ../postgres.git
-	branch = REL_16_STABLE_neon
+	branch = loams/pg16
 [submodule "vendor/postgres-v17"]
 	path = vendor/postgres-v17
 	url = ../postgres.git
-	branch = REL_17_STABLE_neon
+	branch = loams/pg17
+[submodule "vendor/postgres-v18"]
+	path = vendor/postgres-v18
+	url = ../postgres.git
+	branch = loams/pg18

@@ -455,7 +455,7 @@ RUN mkdir -p /h3/usr/ && \
 # not version-specific
 # last release v4.1.3 - Jul 26, 2023
 WORKDIR /ext-src
-RUN wget https://github.com/zachasme/h3-pg/archive/refs/tags/v4.1.3.tar.gz -O h3-pg.tar.gz && \
+RUN wget https://github.com/postgis/h3-pg/archive/refs/tags/v4.1.3.tar.gz -O h3-pg.tar.gz && \
     echo "5c17f09a820859ffe949f847bebf1be98511fb8f1bd86f94932512c00479e324 h3-pg.tar.gz" | sha256sum --check && \
     mkdir h3-pg-src && cd h3-pg-src && tar xzf ../h3-pg.tar.gz --strip-components=1 -C .
 
@@ -1145,66 +1145,6 @@ USER root
 
 #########################################################################################
 #
-# Layers "pg-onnx-build" and "pgrag-build"
-# Compile "pgrag" extensions
-#
-#########################################################################################
-
-FROM build-deps AS pgrag-src
-ARG PG_VERSION
-WORKDIR /ext-src
-COPY compute/patches/onnxruntime.patch .
-
-RUN wget https://github.com/microsoft/onnxruntime/archive/refs/tags/v1.18.1.tar.gz -O onnxruntime.tar.gz && \
-    mkdir onnxruntime-src && cd onnxruntime-src && tar xzf ../onnxruntime.tar.gz --strip-components=1 -C . && \
-    patch -p1 < /ext-src/onnxruntime.patch && \
-    echo "#nothing to test here" > neon-test.sh
-
-RUN wget https://github.com/neondatabase-labs/pgrag/archive/refs/tags/v0.1.2.tar.gz -O pgrag.tar.gz &&  \
-    echo "7361654ea24f08cbb9db13c2ee1c0fe008f6114076401bb871619690dafc5225 pgrag.tar.gz" | sha256sum --check && \
-    mkdir pgrag-src && cd pgrag-src && tar xzf ../pgrag.tar.gz --strip-components=1 -C .
-
-FROM rust-extensions-build-pgrx14 AS pgrag-build
-COPY --from=pgrag-src /ext-src/ /ext-src/
-
-# Install build-time dependencies
-# cmake 3.26 or higher is required, so installing it using pip (bullseye-backports has cmake 3.25).
-# Install it using virtual environment, because Python 3.11 (the default version on Debian 12 (Bookworm)) complains otherwise
-WORKDIR /ext-src/onnxruntime-src
-RUN apt update && apt install --no-install-recommends --no-install-suggests -y \
-    python3 python3-pip python3-venv && \
-    apt clean && rm -rf /var/lib/apt/lists/* && \
-    python3 -m venv venv && \
-    . venv/bin/activate && \
-    python3 -m pip install cmake==3.30.5
-
-RUN . venv/bin/activate && \
-    ./build.sh --config Release --parallel --cmake_generator Ninja \
-    --skip_submodule_sync --skip_tests --allow_running_as_root
-
-WORKDIR /ext-src/pgrag-src
-RUN cd exts/rag && \
-    sed -i 's/pgrx = "0.14.1"/pgrx = { version = "0.14.1", features = [ "unsafe-postgres" ] }/g' Cargo.toml && \
-    cargo pgrx install --release && \
-    echo "trusted = true" >> /usr/local/pgsql/share/extension/rag.control
-
-RUN cd exts/rag_bge_small_en_v15 && \
-    sed -i 's/pgrx = "0.14.1"/pgrx = { version = "0.14.1", features = [ "unsafe-postgres" ] }/g' Cargo.toml && \
-    ORT_LIB_LOCATION=/ext-src/onnxruntime-src/build/Linux \
-        REMOTE_ONNX_URL=http://pg-ext-s3-gateway.pg-ext-s3-gateway.svc.cluster.local/pgrag-data/bge_small_en_v15.onnx \
-        cargo pgrx install --release --features remote_onnx && \
-    echo "trusted = true" >> /usr/local/pgsql/share/extension/rag_bge_small_en_v15.control
-
-RUN cd exts/rag_jina_reranker_v1_tiny_en && \
-    sed -i 's/pgrx = "0.14.1"/pgrx = { version = "0.14.1", features = [ "unsafe-postgres" ] }/g' Cargo.toml && \
-    ORT_LIB_LOCATION=/ext-src/onnxruntime-src/build/Linux \
-        REMOTE_ONNX_URL=http://pg-ext-s3-gateway.pg-ext-s3-gateway.svc.cluster.local/pgrag-data/jina_reranker_v1_tiny_en.onnx \
-        cargo pgrx install --release --features remote_onnx && \
-    echo "trusted = true" >> /usr/local/pgsql/share/extension/rag_jina_reranker_v1_tiny_en.control
-
-
-#########################################################################################
-#
 # Layer "pg_jsonschema-build"
 # Compile "pg_jsonschema" extension
 #
@@ -1365,7 +1305,8 @@ ARG PG_VERSION
 # Do not update without approve from proxy team
 # Make sure the version is reflected in proxy/src/serverless/local_conn_pool.rs
 WORKDIR /ext-src
-RUN wget https://github.com/neondatabase/pg_session_jwt/archive/refs/tags/v0.3.1.tar.gz -O pg_session_jwt.tar.gz && \
+# From our fork's tag (the same tarball as Neon's: the sha256 is unchanged; LP-0006).
+RUN wget https://github.com/ostrium-labs/pg_session_jwt/archive/refs/tags/v0.3.1.tar.gz -O pg_session_jwt.tar.gz && \
     echo "62fec9e472cb805c53ba24a0765afdb8ea2720cfc03ae7813e61687b36d1b0ad pg_session_jwt.tar.gz" | sha256sum --check && \
     mkdir pg_session_jwt-src && cd pg_session_jwt-src && tar xzf ../pg_session_jwt.tar.gz --strip-components=1 -C . && \
     sed -i 's/pgrx = "0.12.6"/pgrx = { version = "0.12.9", features = [ "unsafe-postgres" ] }/g' Cargo.toml && \
@@ -1657,7 +1598,6 @@ RUN mkdir /usr/local/pgsql
 #########################################################################################
 FROM build-deps AS extensions-minimal
 
-COPY --from=pgrag-build /usr/local/pgsql/ /usr/local/pgsql/
 COPY --from=timescaledb-build /usr/local/pgsql/ /usr/local/pgsql/
 COPY --from=pg_cron-build /usr/local/pgsql/ /usr/local/pgsql/
 COPY --from=pg_partman-build /usr/local/pgsql/ /usr/local/pgsql/
@@ -1680,7 +1620,6 @@ COPY --from=h3-pg-build /h3/usr /
 COPY --from=postgresql-unit-build /usr/local/pgsql/ /usr/local/pgsql/
 COPY --from=pgvector-build /usr/local/pgsql/ /usr/local/pgsql/
 COPY --from=pgjwt-build /usr/local/pgsql/ /usr/local/pgsql/
-COPY --from=pgrag-build /usr/local/pgsql/ /usr/local/pgsql/
 COPY --from=pg_jsonschema-build /usr/local/pgsql/ /usr/local/pgsql/
 COPY --from=pg_graphql-build /usr/local/pgsql/ /usr/local/pgsql/
 COPY --from=pg_tiktoken-build /usr/local/pgsql/ /usr/local/pgsql/
@@ -1729,19 +1668,44 @@ FROM extensions-${EXTENSIONS} AS neon-pg-ext-build
 FROM build-deps-with-cargo AS compute-tools
 ARG BUILD_TAG
 ENV BUILD_TAG=$BUILD_TAG
+ARG GIT_VERSION=local
 
 USER nonroot
+# `cargo auditable build` (LP-0011): the binaries carry their dependency list
+# (.dep-v0), which the image audit reads (scripts/loams/audit-image.sh); the
+# same cargo-auditable as build-tools/Dockerfile.
+ARG CARGO_AUDITABLE_VERSION=0.7.0
+RUN cargo install --locked --version ${CARGO_AUDITABLE_VERSION} cargo-auditable
 # Copy entire project to get Cargo.* files with proper dependencies for the whole project
 COPY --chown=nonroot . .
+# Build the tools, then the third-party licence file of their Rust crates, as
+# the storage image's (cargo-about 0.9.2, checked by sha256; about.toml,
+# about.hbs; LP-0011), in the same step: the crate sources are only in this
+# step's cache mounts.
+ARG CARGO_ABOUT_VERSION=0.9.2
 RUN --mount=type=cache,uid=1000,target=/home/nonroot/.cargo/registry \
     --mount=type=cache,uid=1000,target=/home/nonroot/.cargo/git \
     --mount=type=cache,uid=1000,target=/home/nonroot/target \
-    cargo build --locked --profile release-line-debug-size-lto --bin compute_ctl --bin fast_import --bin local_proxy && \
+    cargo auditable build --locked --profile release-line-debug-size-lto --bin compute_ctl --bin fast_import --bin local_proxy && \
     mkdir target-bin && \
     cp target/release-line-debug-size-lto/compute_ctl \
        target/release-line-debug-size-lto/fast_import \
        target/release-line-debug-size-lto/local_proxy \
-       target-bin
+       target-bin && \
+    arch=$(uname -m) && \
+    case "$arch" in \
+        x86_64) sha=9099a59e820c38a68b9d65f300662a567d56562f9a10f6aa4c7e86c17c2566af ;; \
+        aarch64) sha=af5169282fb6f84e13471493f405437e43ac517744c9ae12fbe2cdf0a6f0e5a8 ;; \
+        *) echo "Unsupported architecture: $arch" && exit 1 ;; \
+    esac && \
+    mkdir -p /tmp/cargo-about && \
+    curl -fsSL -o /tmp/cargo-about.tgz \
+        "https://github.com/EmbarkStudios/cargo-about/releases/download/${CARGO_ABOUT_VERSION}/cargo-about-${CARGO_ABOUT_VERSION}-${arch}-unknown-linux-musl.tar.gz" && \
+    echo "$sha  /tmp/cargo-about.tgz" | sha256sum -c - && \
+    tar -xzf /tmp/cargo-about.tgz -C /tmp/cargo-about --strip-components=1 && \
+    /tmp/cargo-about/cargo-about generate --locked -o target-bin/THIRD_PARTY_LICENSES.html about.hbs && \
+    grep -q 'the tokio-epoll-uring authors (Neon Inc.)' target-bin/THIRD_PARTY_LICENSES.html && \
+    rm -rf /tmp/cargo-about /tmp/cargo-about.tgz
 
 #########################################################################################
 #
@@ -1872,7 +1836,6 @@ COPY --from=h3-pg-src /ext-src/h3-pg-src /ext-src/h3-pg-src
 COPY --from=postgresql-unit-src /ext-src/ /ext-src/
 COPY --from=pgvector-src /ext-src/ /ext-src/
 COPY --from=pgjwt-src /ext-src/ /ext-src/
-#COPY --from=pgrag-src /ext-src/ /ext-src/
 #COPY --from=pg_jsonschema-src /ext-src/ /ext-src/
 COPY --from=pg_graphql-src /ext-src/ /ext-src/
 #COPY --from=pg_tiktoken-src /ext-src/ /ext-src/
@@ -1925,6 +1888,16 @@ ENV PG_VERSION=${PG_VERSION:?}
 #########################################################################################
 FROM $BASE_IMAGE_SHA
 ARG DEBIAN_VERSION
+ARG PG_VERSION
+ARG GIT_VERSION=local
+ARG BUILD_TAG
+LABEL org.opencontainers.image.title="loams-postgres-compute-${PG_VERSION}" \
+      org.opencontainers.image.description="Loams Postgres compute: Postgres ${PG_VERSION} with the neon extension, compute_ctl and the extension catalogue" \
+      org.opencontainers.image.source="https://github.com/ostrium-labs/loams-postgres" \
+      org.opencontainers.image.revision="${GIT_VERSION}" \
+      org.opencontainers.image.version="${BUILD_TAG}" \
+      org.opencontainers.image.vendor="Ostrium Labs" \
+      org.opencontainers.image.licenses="Apache-2.0 AND PostgreSQL"
 
 # Use strict mode for bash to catch errors early
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
@@ -2012,6 +1985,12 @@ COPY --from=compute-tools --chown=postgres /home/nonroot/target-bin/fast_import 
 
 # local_proxy and its config
 COPY --from=compute-tools --chown=postgres /home/nonroot/target-bin/local_proxy /usr/local/bin/local_proxy
+
+# Licences and the patch list (LP-0011). The licences of Postgres and of the
+# extensions come with NF1 Task 20 (EXTENSIONS.md) and Task 12 (the sources
+# attached to the image).
+COPY LICENSE NOTICE LOAMS_PATCHES.md /usr/share/doc/loams-postgres-compute/
+COPY --from=compute-tools /home/nonroot/target-bin/THIRD_PARTY_LICENSES.html /usr/share/doc/loams-postgres-compute/
 RUN mkdir -p /etc/local_proxy && chown postgres:postgres /etc/local_proxy
 
 # Metrics exporter binaries and configuration files

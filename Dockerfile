@@ -2,9 +2,12 @@
 ### The image itself is mainly used as a container for the binaries and for starting e2e tests with custom parameters.
 ### By default, the binaries inside the image have some mock parameters and can start, but are not intended to be used
 ### inside this image in the real deployments.
-ARG REPOSITORY=ghcr.io/neondatabase
-ARG IMAGE=build-tools
-ARG TAG=pinned
+# The build-tools image (build-tools/Dockerfile), by digest (LP-0009). The
+# loams-build-tools workflow builds it and opens the pull request that moves
+# this line (scripts/loams/pin-build-tools.sh). Until its first build, this is
+# Neon's last public build-tools (the 77e22e4b build's, d4a4001a-bookworm),
+# mirrored byte for byte to ostrium-labs/neon-archive (NF1 Task 1; audit clean).
+ARG BUILD_TOOLS=ghcr.io/ostrium-labs/loams-postgres-build-tools@sha256:bb693814c219898fd506455b632ca3fa347fa6e1eb0c3da8d1eeda265fb20691
 ARG DEBIAN_VERSION=bookworm
 ARG DEBIAN_FLAVOR=${DEBIAN_VERSION}-slim
 
@@ -42,38 +45,36 @@ ARG BASE_IMAGE_SHA=${BASE_IMAGE_SHA/debian:bullseye-slim/debian@$BULLSEYE_SLIM_S
 # - Use cargo chef to build all rust dependencies
 
 # 1. Build all postgres versions
-FROM $REPOSITORY/$IMAGE:$TAG AS pg-build
+FROM $BUILD_TOOLS AS pg-build
 WORKDIR /home/nonroot
 
 COPY --chown=nonroot vendor/postgres-v14 vendor/postgres-v14
 COPY --chown=nonroot vendor/postgres-v15 vendor/postgres-v15
 COPY --chown=nonroot vendor/postgres-v16 vendor/postgres-v16
 COPY --chown=nonroot vendor/postgres-v17 vendor/postgres-v17
+COPY --chown=nonroot vendor/postgres-v18 vendor/postgres-v18
 COPY --chown=nonroot Makefile Makefile
 COPY --chown=nonroot postgres.mk postgres.mk
 COPY --chown=nonroot scripts/ninstall.sh scripts/ninstall.sh
 
 ENV BUILD_TYPE=release
+# 18 (beta, POSTGRES_CORE_VERSIONS) is built for postgres_ffi's headers; the image
+# gains /usr/local/v18 with NF2 Task 8.
 RUN set -e \
     && mold -run make -j $(nproc) -s postgres
 
 # 2. Prepare cargo-chef recipe
-FROM $REPOSITORY/$IMAGE:$TAG AS plan
+FROM $BUILD_TOOLS AS plan
 WORKDIR /home/nonroot
 
 COPY --chown=nonroot . .
 
-RUN --mount=type=secret,uid=1000,id=SUBZERO_ACCESS_TOKEN \
-    set -e \
-    && if [ -s /run/secrets/SUBZERO_ACCESS_TOKEN ]; then \
-        export CARGO_NET_GIT_FETCH_WITH_CLI=true && \
-        git config --global url."https://$(cat /run/secrets/SUBZERO_ACCESS_TOKEN)@github.com/neondatabase/subzero".insteadOf "https://github.com/neondatabase/subzero" && \
-        cargo add -p proxy subzero-core --git https://github.com/neondatabase/subzero --rev 396264617e78e8be428682f87469bb25429af88a; \
-    fi \
-    && cargo chef prepare --recipe-path recipe.json
+# The proxy is built with the subzero-core stub (libs/proxy/subzero_core) and
+# without the rest_broker feature: the REST broker is not supported (LP-0004).
+RUN cargo chef prepare --recipe-path recipe.json
 
 # Main build image
-FROM $REPOSITORY/$IMAGE:$TAG AS build
+FROM $BUILD_TOOLS AS build
 WORKDIR /home/nonroot
 ARG GIT_VERSION=local
 ARG BUILD_TAG
@@ -84,26 +85,15 @@ ENV CARGO_FEATURES="default"
 # 3. Build cargo dependencies. Note that this step doesn't depend on anything else than
 # `recipe.json`, so the layer can be reused as long as none of the dependencies change.
 COPY --from=plan     /home/nonroot/recipe.json                              recipe.json
-RUN --mount=type=secret,uid=1000,id=SUBZERO_ACCESS_TOKEN \
-    set -e \
-    && if [ -s /run/secrets/SUBZERO_ACCESS_TOKEN ]; then \
-        export CARGO_NET_GIT_FETCH_WITH_CLI=true && \
-        git config --global url."https://$(cat /run/secrets/SUBZERO_ACCESS_TOKEN)@github.com/neondatabase/subzero".insteadOf "https://github.com/neondatabase/subzero"; \
-    fi \
+RUN set -e \
     && RUSTFLAGS="-Clinker=clang -Clink-arg=-fuse-ld=mold -Clink-arg=-Wl,--no-rosegment -Cforce-frame-pointers=yes ${ADDITIONAL_RUSTFLAGS}" cargo chef cook --locked --release --recipe-path recipe.json
 
 # Perform the main build. We reuse the Postgres build artifacts from the intermediate 'pg-build'
 # layer, and the cargo dependencies built in the previous step.
 COPY --chown=nonroot --from=pg-build /home/nonroot/pg_install/ pg_install
 COPY --chown=nonroot . .
-COPY --chown=nonroot --from=plan     /home/nonroot/proxy/Cargo.toml         proxy/Cargo.toml
-COPY --chown=nonroot --from=plan     /home/nonroot/Cargo.lock               Cargo.lock
 
-RUN  --mount=type=secret,uid=1000,id=SUBZERO_ACCESS_TOKEN \
-    set -e \
-    && if [ -s /run/secrets/SUBZERO_ACCESS_TOKEN ]; then \
-        export CARGO_FEATURES="${CARGO_FEATURES},rest_broker"; \
-    fi \
+RUN set -e \
     && if [ "$IO_ALIGNMENT" = "4k" ]; then \
         export CARGO_FEATURES="${CARGO_FEATURES},io-align-4k"; \
     elif [ "$IO_ALIGNMENT" = "512" ]; then \
@@ -124,8 +114,37 @@ RUN  --mount=type=secret,uid=1000,id=SUBZERO_ACCESS_TOKEN \
       --locked --release \
     && mold -run make -j $(nproc) -s neon-pg-ext
 
+# The third-party licence file of the Rust crates (cargo-about 0.9.2, checked by
+# sha256; about.toml, about.hbs; LP-0010). The crate sources are already in
+# CARGO_HOME from the build above.
+ARG CARGO_ABOUT_VERSION=0.9.2
+RUN set -e \
+    && arch=$(uname -m) \
+    && case "$arch" in \
+        x86_64) sha=9099a59e820c38a68b9d65f300662a567d56562f9a10f6aa4c7e86c17c2566af ;; \
+        aarch64) sha=af5169282fb6f84e13471493f405437e43ac517744c9ae12fbe2cdf0a6f0e5a8 ;; \
+        *) echo "Unsupported architecture: $arch" && exit 1 ;; \
+    esac \
+    && mkdir -p /tmp/cargo-about \
+    && curl -fsSL -o /tmp/cargo-about.tgz \
+        "https://github.com/EmbarkStudios/cargo-about/releases/download/${CARGO_ABOUT_VERSION}/cargo-about-${CARGO_ABOUT_VERSION}-${arch}-unknown-linux-musl.tar.gz" \
+    && echo "$sha  /tmp/cargo-about.tgz" | sha256sum -c - \
+    && tar -xzf /tmp/cargo-about.tgz -C /tmp/cargo-about --strip-components=1 \
+    && /tmp/cargo-about/cargo-about generate --locked -o THIRD_PARTY_LICENSES.html about.hbs \
+    && grep -q 'the tokio-epoll-uring authors (Neon Inc.)' THIRD_PARTY_LICENSES.html \
+    && rm -rf /tmp/cargo-about /tmp/cargo-about.tgz
+
 # Assemble the final image
 FROM $BASE_IMAGE_SHA
+ARG GIT_VERSION=local
+ARG BUILD_TAG
+LABEL org.opencontainers.image.title="loams-postgres-storage" \
+      org.opencontainers.image.description="Loams Postgres storage: pageserver, safekeeper, storage broker, storage controller, proxy and Postgres for WAL redo" \
+      org.opencontainers.image.source="https://github.com/ostrium-labs/loams-postgres" \
+      org.opencontainers.image.revision="${GIT_VERSION}" \
+      org.opencontainers.image.version="${BUILD_TAG}" \
+      org.opencontainers.image.vendor="Ostrium Labs" \
+      org.opencontainers.image.licenses="Apache-2.0"
 WORKDIR /data
 
 RUN set -e \
@@ -168,6 +187,10 @@ COPY --from=build /home/nonroot/pg_install/v14 /usr/local/v14/
 COPY --from=build /home/nonroot/pg_install/v15 /usr/local/v15/
 COPY --from=build /home/nonroot/pg_install/v16 /usr/local/v16/
 COPY --from=build /home/nonroot/pg_install/v17 /usr/local/v17/
+
+# Licences and the patch list (LP-0010).
+COPY --from=build /home/nonroot/LICENSE /home/nonroot/NOTICE /home/nonroot/LOAMS_PATCHES.md \
+     /home/nonroot/THIRD_PARTY_LICENSES.html /usr/share/doc/loams-postgres/
 
 # Deprecated: Old deployment scripts use this tarball which contains all the Postgres binaries.
 # That's obsolete, since all the same files are also present under /usr/local/v*. But to keep the

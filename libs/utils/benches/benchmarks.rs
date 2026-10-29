@@ -8,7 +8,7 @@ use utils::logging::log_slow;
 // Register benchmarks with Criterion.
 criterion_group!(
     name = benches;
-    config = Criterion::default().with_profiler(PProfProfiler::new(100, Output::Flamegraph(None)));
+    config = Criterion::default().with_profiler(PProfProfiler::new(100, Output::Protobuf));
     targets = bench_id_stringify,
     bench_log_slow,
 );

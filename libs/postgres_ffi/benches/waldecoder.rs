@@ -13,7 +13,7 @@ const KB: usize = 1024;
 // Register benchmarks with Criterion.
 criterion_group!(
     name = benches;
-    config = Criterion::default().with_profiler(PProfProfiler::new(100, Output::Flamegraph(None)));
+    config = Criterion::default().with_profiler(PProfProfiler::new(100, Output::Protobuf));
     targets = bench_complete_record,
 );
 criterion_main!(benches);

@@ -12,6 +12,7 @@ pub enum PgMajorVersion {
     PG15 = 15,
     PG16 = 16,
     PG17 = 17,
+    PG18 = 18,
     // !!! When you add a new PgMajorVersion, don't forget to update PgMajorVersion::ALL
 }
 
@@ -23,11 +24,16 @@ pub struct PgVersionId(u32);
 impl PgVersionId {
     pub const UNKNOWN: PgVersionId = PgVersionId(0);
 
-    pub fn from_full_pg_version(version: u32) -> PgVersionId {
+    /// Parse a full version ID (`PG_VERSION_NUM`, e.g. 180006). 0 means unknown.
+    ///
+    /// A version outside the supported majors is an error, not a panic: the
+    /// value comes from the network (the walproposer's greeting) and from
+    /// files on disk (Loams-Patch LP-0040).
+    pub fn from_full_pg_version(version: u32) -> Result<PgVersionId, InvalidPgVersion> {
         match version {
-            0 => PgVersionId(version), // unknown version
-            140000..180000 => PgVersionId(version),
-            _ => panic!("Invalid full PostgreSQL version ID {version}"),
+            0 => Ok(PgVersionId(version)), // unknown version
+            140000..190000 => Ok(PgVersionId(version)),
+            _ => Err(InvalidPgVersion(version)),
         }
     }
 }
@@ -71,6 +77,7 @@ impl PgMajorVersion {
             PgMajorVersion::PG15 => 15,
             PgMajorVersion::PG16 => 16,
             PgMajorVersion::PG17 => 17,
+            PgMajorVersion::PG18 => 18,
         }
     }
 
@@ -84,6 +91,7 @@ impl PgMajorVersion {
             PgMajorVersion::PG15 => "15",
             PgMajorVersion::PG16 => "16\x0A",
             PgMajorVersion::PG17 => "17\x0A",
+            PgMajorVersion::PG18 => "18\x0A",
         }
     }
 
@@ -97,6 +105,7 @@ impl PgMajorVersion {
             PgMajorVersion::PG15 => "v15",
             PgMajorVersion::PG16 => "v16",
             PgMajorVersion::PG17 => "v17",
+            PgMajorVersion::PG18 => "v18",
         }
         .to_string()
     }
@@ -107,6 +116,7 @@ impl PgMajorVersion {
         PgMajorVersion::PG15,
         PgMajorVersion::PG16,
         PgMajorVersion::PG17,
+        PgMajorVersion::PG18,
     ];
 }
 
@@ -117,12 +127,12 @@ impl Display for PgMajorVersion {
             PgMajorVersion::PG15 => "PgMajorVersion::PG15",
             PgMajorVersion::PG16 => "PgMajorVersion::PG16",
             PgMajorVersion::PG17 => "PgMajorVersion::PG17",
+            PgMajorVersion::PG18 => "PgMajorVersion::PG18",
         })
     }
 }
 
-#[derive(Debug, thiserror::Error)]
-#[allow(dead_code)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub struct InvalidPgVersion(u32);
 
 impl Display for InvalidPgVersion {
@@ -140,6 +150,7 @@ impl TryFrom<PgVersionId> for PgMajorVersion {
             15 => PgMajorVersion::PG15,
             16 => PgMajorVersion::PG16,
             17 => PgMajorVersion::PG17,
+            18 => PgMajorVersion::PG18,
             _ => return Err(InvalidPgVersion(value.0)),
         })
     }
@@ -169,7 +180,48 @@ impl FromStr for PgMajorVersion {
             "15" => PgMajorVersion::PG15,
             "16" => PgMajorVersion::PG16,
             "17" => PgMajorVersion::PG17,
+            "18" => PgMajorVersion::PG18,
             _ => return Err(PgMajorVersionParseError(s.to_string())),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn full_pg_version_out_of_range_is_error() {
+        // In range: every supported major, and 0 (unknown).
+        assert_eq!(
+            PgVersionId::from_full_pg_version(0).unwrap(),
+            PgVersionId::UNKNOWN
+        );
+        for v in [140000, 140018, 170011, 180000, 180006, 189999] {
+            assert!(PgVersionId::from_full_pg_version(v).is_ok(), "{v}");
+        }
+        // Out of range: an error, never a panic.
+        for v in [1, 139999, 190000, 190001, u32::MAX] {
+            let err = PgVersionId::from_full_pg_version(v).unwrap_err();
+            assert_eq!(err.to_string(), format!("InvalidPgVersion({v})"));
+        }
+    }
+
+    #[test]
+    fn pg18_is_known() {
+        assert!(PgMajorVersion::ALL.contains(&PgMajorVersion::PG18));
+        assert_eq!(PgMajorVersion::PG18.major_version_num(), 18);
+        assert_eq!(PgMajorVersion::PG18.versionfile_string(), "18\n");
+        assert_eq!(PgMajorVersion::PG18.v_str(), "v18");
+        assert_eq!("18".parse::<PgMajorVersion>().unwrap(), PgMajorVersion::PG18);
+        assert_eq!(
+            PgMajorVersion::try_from(PgVersionId::from_full_pg_version(180006).unwrap()).unwrap(),
+            PgMajorVersion::PG18
+        );
+        assert!("19".parse::<PgMajorVersion>().is_err());
+        // ALL is sorted and complete.
+        let mut sorted = PgMajorVersion::ALL.to_vec();
+        sorted.sort();
+        assert_eq!(sorted, PgMajorVersion::ALL);
     }
 }

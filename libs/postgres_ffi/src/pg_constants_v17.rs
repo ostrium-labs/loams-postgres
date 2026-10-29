@@ -2,6 +2,12 @@ use crate::PgMajorVersion;
 
 pub const MY_PGVERSION: PgMajorVersion = PgMajorVersion::PG17;
 
+/// CATALOG_VERSION_NO (catalog/catversion.h); fixed for a major once it is released.
+pub const CATALOG_VERSION_NO: u32 = 202406281;
+
+/// sizeof(xl_xact_stats_item) (15 to 17; 14 has no dropped-stats section).
+pub const SIZEOF_XL_XACT_STATS_ITEM: usize = 12;
+
 pub const XACT_XINFO_HAS_DROPPED_STATS: u32 = 1u32 << 8;
 
 pub const XLOG_DBASE_CREATE_FILE_COPY: u8 = 0x00;
@@ -57,3 +63,8 @@ pub const XLOG_HEAP2_PRUNE_VACUUM_CLEANUP: u8 = 0x30;
 
 pub const XLOG_OVERWRITE_CONTRECORD: u8 = 0xD0;
 pub const XLOG_CHECKPOINT_REDO: u8 = 0xE0;
+
+/// `default_char_signedness` is in the control file from 18 on.
+pub fn default_char_signedness(_cf: &ControlFileData) -> Option<bool> {
+    None
+}

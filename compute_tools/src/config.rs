@@ -44,6 +44,9 @@ pub fn line_in_file(path: &Path, line: &str) -> Result<bool> {
     Ok(true)
 }
 
+/// The logical decoding output plugins a compute trusts (LP-0016, NF1 Task 17).
+const LOAMS_OUTPUT_PLUGIN_LIBRARIES: &str = "pgoutput, test_decoding, wal2json";
+
 /// Create or completely rewrite configuration file specified by `path`
 #[allow(clippy::too_many_arguments)]
 pub fn write_postgres_conf(
@@ -240,6 +243,17 @@ pub fn write_postgres_conf(
         file,
         "neon.privileged_role_name={}",
         escape_conf_value(params.privileged_role_name.as_str())
+    )?;
+
+    // Postgres 16.15 and 17.11 only load the logical decoding output plugins
+    // named in output_plugin_libraries (default 'pgoutput, test_decoding';
+    // upstream 01992176, CVE-2026-6471). wal2json is in Loams Postgres's core
+    // extension catalogue, so it is added to the trusted list. A setting in the
+    // spec, written below, replaces this one.
+    writeln!(
+        file,
+        "output_plugin_libraries={}",
+        escape_conf_value(LOAMS_OUTPUT_PLUGIN_LIBRARIES)
     )?;
 
     // If there are any extra options in the 'settings' field, append those

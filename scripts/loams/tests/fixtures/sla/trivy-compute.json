@@ -1,0 +1,33 @@
+{
+  "SchemaVersion": 2,
+  "ArtifactName": "ghcr.io/neondatabase/compute-node-v17@sha256:13ab146d3e7bbabb25a8532f315ac443e7512351d1ede0bab586def5c70e26c3",
+  "ArtifactType": "container_image",
+  "Results": [
+    {
+      "Target": "ghcr.io/neondatabase/compute-node-v17@sha256:13ab146d3e7bbabb25a8532f315ac443e7512351d1ede0bab586def5c70e26c3 (debian 12.11)",
+      "Class": "os-pkgs",
+      "Type": "debian",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2026-0101",
+          "PkgName": "libssl3",
+          "InstalledVersion": "3.0.15-1~deb12u1",
+          "FixedVersion": "3.0.17-1~deb12u2",
+          "Severity": "CRITICAL",
+          "Title": "openssl: example critical flaw",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-0101",
+          "CVSS": {"nvd": {"V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H", "V3Score": 9.8}}
+        },
+        {
+          "VulnerabilityID": "CVE-2026-0303",
+          "PkgName": "libcurl4",
+          "InstalledVersion": "7.88.1-10+deb12u12",
+          "FixedVersion": "7.88.1-10+deb12u14",
+          "Severity": "CRITICAL",
+          "Title": "curl: vendor says critical, NVD scores it high",
+          "CVSS": {"nvd": {"V3Score": 7.5}, "redhat": {"V3Score": 8.1}}
+        }
+      ]
+    }
+  ]
+}

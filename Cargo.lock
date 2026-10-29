@@ -153,6 +153,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "arbitrary"
+version = "1.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3d036a3c4ab069c7b410a2ce876bd74808d2d0888a82667669f8e783a898bf1"
+
+[[package]]
 name = "arc-swap"
 version = "1.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -166,12 +172,6 @@ checksum = "b6cd774058b1b415c4855d8b86436c04bf050c003156fe24bc326fb3fe75c343"
 dependencies = [
  "static_assertions",
 ]
-
-[[package]]
-name = "arrayvec"
-version = "0.7.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
 
 [[package]]
 name = "assert-json-diff"
@@ -778,7 +778,7 @@ dependencies = [
 [[package]]
 name = "azure_core"
 version = "0.21.0"
-source = "git+https://github.com/neondatabase/azure-sdk-for-rust.git?branch=neon#f64bd57262ced51afce5d8909c06dcb11a6dd85a"
+source = "git+https://github.com/ostrium-labs/azure-sdk-for-rust.git?rev=f64bd57262ced51afce5d8909c06dcb11a6dd85a#f64bd57262ced51afce5d8909c06dcb11a6dd85a"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -791,7 +791,7 @@ dependencies = [
  "once_cell",
  "paste",
  "pin-project",
- "quick-xml 0.31.0",
+ "quick-xml",
  "rand 0.8.5",
  "reqwest",
  "rustc_version",
@@ -807,7 +807,7 @@ dependencies = [
 [[package]]
 name = "azure_identity"
 version = "0.21.0"
-source = "git+https://github.com/neondatabase/azure-sdk-for-rust.git?branch=neon#f64bd57262ced51afce5d8909c06dcb11a6dd85a"
+source = "git+https://github.com/ostrium-labs/azure-sdk-for-rust.git?rev=f64bd57262ced51afce5d8909c06dcb11a6dd85a#f64bd57262ced51afce5d8909c06dcb11a6dd85a"
 dependencies = [
  "async-lock",
  "async-trait",
@@ -826,7 +826,7 @@ dependencies = [
 [[package]]
 name = "azure_storage"
 version = "0.21.0"
-source = "git+https://github.com/neondatabase/azure-sdk-for-rust.git?branch=neon#f64bd57262ced51afce5d8909c06dcb11a6dd85a"
+source = "git+https://github.com/ostrium-labs/azure-sdk-for-rust.git?rev=f64bd57262ced51afce5d8909c06dcb11a6dd85a#f64bd57262ced51afce5d8909c06dcb11a6dd85a"
 dependencies = [
  "RustyXML",
  "async-lock",
@@ -844,7 +844,7 @@ dependencies = [
 [[package]]
 name = "azure_storage_blobs"
 version = "0.21.0"
-source = "git+https://github.com/neondatabase/azure-sdk-for-rust.git?branch=neon#f64bd57262ced51afce5d8909c06dcb11a6dd85a"
+source = "git+https://github.com/ostrium-labs/azure-sdk-for-rust.git?rev=f64bd57262ced51afce5d8909c06dcb11a6dd85a#f64bd57262ced51afce5d8909c06dcb11a6dd85a"
 dependencies = [
  "RustyXML",
  "azure_core",
@@ -864,7 +864,7 @@ dependencies = [
 [[package]]
 name = "azure_svc_blobstorage"
 version = "0.21.0"
-source = "git+https://github.com/neondatabase/azure-sdk-for-rust.git?branch=neon#f64bd57262ced51afce5d8909c06dcb11a6dd85a"
+source = "git+https://github.com/ostrium-labs/azure-sdk-for-rust.git?rev=f64bd57262ced51afce5d8909c06dcb11a6dd85a#f64bd57262ced51afce5d8909c06dcb11a6dd85a"
 dependencies = [
  "azure_core",
  "bytes",
@@ -2373,7 +2373,7 @@ dependencies = [
 [[package]]
 name = "framed-websockets"
 version = "0.1.0"
-source = "git+https://github.com/neondatabase/framed-websockets#34eff3d6f8cfccbc5f35e4f65314ff7328621127"
+source = "git+https://github.com/ostrium-labs/framed-websockets?rev=34eff3d6f8cfccbc5f35e4f65314ff7328621127#34eff3d6f8cfccbc5f35e4f65314ff7328621127"
 dependencies = [
  "base64 0.21.7",
  "bytemuck",
@@ -3365,46 +3365,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "64e9829a50b42bb782c1df523f78d332fe371b10c661e78b7a3c34b0198e9fac"
 
 [[package]]
-name = "inferno"
-version = "0.11.21"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "232929e1d75fe899576a3d5c7416ad0d88dbfbb3c3d6aa00873a7408a50ddb88"
-dependencies = [
- "ahash",
- "indexmap 2.10.0",
- "is-terminal",
- "itoa",
- "log",
- "num-format",
- "once_cell",
- "quick-xml 0.26.0",
- "rgb",
- "str_stack",
-]
-
-[[package]]
-name = "inferno"
-version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75a5d75fee4d36809e6b021e4b96b686e763d365ffdb03af2bd00786353f84fe"
-dependencies = [
- "ahash",
- "clap",
- "crossbeam-channel",
- "crossbeam-utils",
- "dashmap 6.1.0",
- "env_logger",
- "indexmap 2.10.0",
- "itoa",
- "log",
- "num-format",
- "once_cell",
- "quick-xml 0.37.1",
- "rgb",
- "str_stack",
-]
-
-[[package]]
 name = "inotify"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3675,6 +3635,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d750af042f7ef4f724306de029d18836c26c1765a54a6a3f094cbd23a7267ffa"
 
 [[package]]
+name = "libfuzzer-sys"
+version = "0.4.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a9fd2f41a1cba099f79a0b6b6c35656cf7c03351a7bae8ff0f28f25270f929d2"
+dependencies = [
+ "arbitrary",
+ "cc",
+]
+
+[[package]]
 name = "libloading"
 version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3707,6 +3677,20 @@ name = "litemap"
 version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ee93343901ab17bd981295f2cf0026d4ad018c7c31ba84549a4ddbb47a45104"
+
+[[package]]
+name = "loams-fuzz"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "libfuzzer-sys",
+ "pageserver_api",
+ "postgres_ffi",
+ "proxy",
+ "utils",
+ "wal_decoder",
+ "workspace_hack",
+]
 
 [[package]]
 name = "lock_api"
@@ -4162,16 +4146,6 @@ name = "num-conv"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "51d515d32fb182ee37cda2ccdcb92950d6a3c2893aa280e540671c2cd0f3b1d9"
-
-[[package]]
-name = "num-format"
-version = "0.4.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a652d9771a63711fd3c3deb670acfbe5c30a4072e664d7a3bf5a9e1056ac72c3"
-dependencies = [
- "arrayvec",
- "itoa",
-]
 
 [[package]]
 name = "num-integer"
@@ -5036,7 +5010,7 @@ dependencies = [
 [[package]]
 name = "postgres"
 version = "0.19.7"
-source = "git+https://github.com/neondatabase/rust-postgres.git?branch=neon#1f21e7959a96a34dcfbfce1b14b73286cdadffe9"
+source = "git+https://github.com/ostrium-labs/rust-postgres.git?rev=f3cf448febde5fd298071d54d568a9c875a7a62b#f3cf448febde5fd298071d54d568a9c875a7a62b"
 dependencies = [
  "bytes",
  "fallible-iterator",
@@ -5049,7 +5023,7 @@ dependencies = [
 [[package]]
 name = "postgres-protocol"
 version = "0.6.6"
-source = "git+https://github.com/neondatabase/rust-postgres.git?branch=neon#f3cf448febde5fd298071d54d568a9c875a7a62b"
+source = "git+https://github.com/ostrium-labs/rust-postgres.git?rev=f3cf448febde5fd298071d54d568a9c875a7a62b#f3cf448febde5fd298071d54d568a9c875a7a62b"
 dependencies = [
  "base64 0.22.1",
  "byteorder",
@@ -5083,7 +5057,7 @@ dependencies = [
 [[package]]
 name = "postgres-types"
 version = "0.2.6"
-source = "git+https://github.com/neondatabase/rust-postgres.git?branch=neon#f3cf448febde5fd298071d54d568a9c875a7a62b"
+source = "git+https://github.com/ostrium-labs/rust-postgres.git?rev=f3cf448febde5fd298071d54d568a9c875a7a62b#f3cf448febde5fd298071d54d568a9c875a7a62b"
 dependencies = [
  "bytes",
  "chrono",
@@ -5218,7 +5192,6 @@ dependencies = [
  "cfg-if",
  "criterion",
  "findshlibs",
- "inferno 0.11.21",
  "libc",
  "log",
  "nix 0.26.4",
@@ -5243,7 +5216,6 @@ dependencies = [
  "anyhow",
  "backtrace",
  "flate2",
- "inferno 0.12.0",
  "num",
  "paste",
  "prost 0.13.5",
@@ -5599,30 +5571,12 @@ dependencies = [
 
 [[package]]
 name = "quick-xml"
-version = "0.26.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f50b1c63b38611e7d4d7f68b82d3ad0cc71a2ad2e7f61fc10f1328d917c93cd"
-dependencies = [
- "memchr",
-]
-
-[[package]]
-name = "quick-xml"
 version = "0.31.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1004a344b30a54e2ee58d66a71b32d2db2feb0a31f9a2d302bf0536f15de2a33"
 dependencies = [
  "memchr",
  "serde",
-]
-
-[[package]]
-name = "quick-xml"
-version = "0.37.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f22f29bdff3987b4d8632ef95fd6424ec7e4e0a57e2f4fc63e489e75357f6a03"
-dependencies = [
- "memchr",
 ]
 
 [[package]]
@@ -6099,15 +6053,6 @@ checksum = "f8dd2a808d456c4a54e300a23e9f5a67e122c3024119acbfd73e3bf664491cb2"
 dependencies = [
  "hmac",
  "subtle",
-]
-
-[[package]]
-name = "rgb"
-version = "0.8.50"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57397d16646700483b67d2dd6511d79318f9d057fdbd21a4066aeac8b41d310a"
-dependencies = [
- "bytemuck",
 ]
 
 [[package]]
@@ -7240,12 +7185,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "str_stack"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9091b6114800a5f2141aee1d1b9d6ca3592ac062dc5decb3764ec5895a47b4eb"
-
-[[package]]
 name = "stringprep"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7680,7 +7619,7 @@ dependencies = [
 [[package]]
 name = "tokio-epoll-uring"
 version = "0.1.0"
-source = "git+https://github.com/neondatabase/tokio-epoll-uring.git?branch=main#781989bb540a1408b0b93daa1e9d1fa452195497"
+source = "git+https://github.com/ostrium-labs/tokio-epoll-uring.git?rev=5ab61ac890f5aa7fceebb8d311f0e6ac31159d98#5ab61ac890f5aa7fceebb8d311f0e6ac31159d98"
 dependencies = [
  "futures",
  "nix 0.26.4",
@@ -7717,7 +7656,7 @@ dependencies = [
 [[package]]
 name = "tokio-postgres"
 version = "0.7.10"
-source = "git+https://github.com/neondatabase/rust-postgres.git?branch=neon#f3cf448febde5fd298071d54d568a9c875a7a62b"
+source = "git+https://github.com/ostrium-labs/rust-postgres.git?rev=f3cf448febde5fd298071d54d568a9c875a7a62b#f3cf448febde5fd298071d54d568a9c875a7a62b"
 dependencies = [
  "async-trait",
  "byteorder",
@@ -8349,7 +8288,7 @@ dependencies = [
 [[package]]
 name = "uring-common"
 version = "0.1.0"
-source = "git+https://github.com/neondatabase/tokio-epoll-uring.git?branch=main#781989bb540a1408b0b93daa1e9d1fa452195497"
+source = "git+https://github.com/ostrium-labs/tokio-epoll-uring.git?rev=5ab61ac890f5aa7fceebb8d311f0e6ac31159d98#5ab61ac890f5aa7fceebb8d311f0e6ac31159d98"
 dependencies = [
  "bytes",
  "io-uring",

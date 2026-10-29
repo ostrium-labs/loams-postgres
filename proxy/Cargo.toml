@@ -8,6 +8,8 @@ license.workspace = true
 default = []
 testing = ["dep:tokio-postgres"]
 rest_broker = ["dep:subzero-core", "dep:ouroboros"]
+# Entry points for the fuzz targets in fuzz/ (proxy::fuzzing); never in a release build.
+fuzzing = []
 
 [dependencies]
 ahash.workspace = true

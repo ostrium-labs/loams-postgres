@@ -246,7 +246,7 @@ fn decode_interpret(bench: &BenchmarkData, shard: &[ShardIdentity]) -> anyhow::R
 }
 criterion_group!(
     name=benches;
-    config=Criterion::default().with_profiler(PProfProfiler::new(100, Output::Flamegraph(None)));
+    config=Criterion::default().with_profiler(PProfProfiler::new(100, Output::Protobuf));
     targets=criterion_benchmark
 );
 criterion_main!(benches);

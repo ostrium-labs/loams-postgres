@@ -429,6 +429,8 @@ def test_drop_role_with_table_privileges_from_neon_superuser(neon_simple_env: Ne
                             # Some autocomplete-suggested hash, no specific meaning.
                             "encrypted_password": "SCRAM-SHA-256$4096:hBT22QjqpydQWqEulorfXA==$miBogcoj68JWYdsNB5PW1X6PjSLBEcNuctuhtGkb4PY=:hxk2gxkwxGo6P7GCtfpMlhA9zwHvPMsCz+NQf2HfvWk=",
                             "options": [],
+                            # Neon's admin grants are opt-in in Loams Postgres (LP-0032).
+                            "privileged": True,
                         },
                     ],
                     "databases": [
@@ -556,6 +558,8 @@ def test_drop_role_with_table_privileges_from_non_neon_superuser(neon_simple_env
                             # Some autocomplete-suggested hash, no specific meaning.
                             "encrypted_password": "SCRAM-SHA-256$4096:hBT22QjqpydQWqEulorfXA==$miBogcoj68JWYdsNB5PW1X6PjSLBEcNuctuhtGkb4PY=:hxk2gxkwxGo6P7GCtfpMlhA9zwHvPMsCz+NQf2HfvWk=",
                             "options": [],
+                            # Neon's admin grants are opt-in in Loams Postgres (LP-0032).
+                            "privileged": True,
                         },
                     ],
                     "databases": [

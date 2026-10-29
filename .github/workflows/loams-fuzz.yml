@@ -1,0 +1,170 @@
+# Nightly fuzzing of code Loams Postgres owns (design §51 §3.7, D820; LP-0008):
+# nobody else fuzzes it since the hard fork. Targets are in fuzz/:
+#   wal_decoder_record     WAL record decoding and interpretation (wal_decoder)
+#   page_service_request   the pageserver's page-service request parser
+#   proxy_startup          the proxy's startup-packet parser
+#   proxy_scram            the proxy's SASL and SCRAM message parsers
+# Each runs 30 minutes, with its corpus kept in the Actions cache.
+#
+# A crash is an undisclosed vulnerability, and this repository's run logs are
+# public: the fuzzer's output goes to a file, never to the log, and is filed
+# with the reproducer as a private issue in the SLA tracker (scripts/loams/sla.py
+# refuses a public repository and prints nothing about a private finding).
+# Nothing is uploaded as an artifact. A public run does not show whether a
+# target crashed either: every step runs whatever the fuzzer found, and the job
+# fails only when filing fails.
+#
+# Needs, besides Actions being enabled on this repository: the variable
+# LOAMS_SLA_REPO and the secret LOAMS_SLA_TOKEN, as loams-advisories.yml.
+# Without the token a scheduled run fuzzes nothing (job `tracker`): a finding
+# would have nowhere private to go.
+# On a pull request the targets are only built (fuzz_targets_build).
+name: loams-fuzz
+
+on:
+  schedule:
+    - cron: "41 1 * * *"
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/loams-fuzz.yml
+      - fuzz/**
+      - Cargo.lock
+      # The code the targets call.
+      - proxy/Cargo.toml
+      - proxy/src/fuzzing.rs
+      - proxy/src/pqproto.rs
+      - proxy/src/parse.rs
+      - proxy/src/sasl/**
+      - proxy/src/scram/**
+      - libs/pageserver_api/**
+      - libs/postgres_ffi/**
+      - libs/wal_decoder/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: loams-fuzz-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SLA_REPO: ${{ vars.LOAMS_SLA_REPO || 'ostrium-labs/loams-postgres-security' }}
+  # cargo fuzz needs nightly (sanitizers). This one (1.89.0-nightly) matches the
+  # fork's 1.88.0 (rust-toolchain.toml); nightly-2026-09-15 cannot compile the
+  # proxy ("overflow evaluating the requirement ... Send" in serverless/mod.rs).
+  # Move it with rust-toolchain.toml.
+  NIGHTLY: nightly-2025-05-10
+  CARGO_FUZZ_VERSION: 0.13.2
+  FUZZ_SECONDS: 1800
+
+jobs:
+  tracker:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      ready: ${{ steps.token.outputs.ready }}
+    steps:
+      - id: token
+        env:
+          TOKEN: ${{ secrets.LOAMS_SLA_TOKEN }}
+        run: |
+          if [ -n "$TOKEN" ]; then echo "ready=true"; else echo "ready=false"; fi >> "$GITHUB_OUTPUT"
+
+  fuzz:
+    needs: tracker
+    if: github.event_name == 'pull_request' || needs.tracker.outputs.ready == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        # The proxy links jemalloc with unprefixed malloc (the workspace's
+        # tikv-jemallocator features), which AddressSanitizer cannot run beside:
+        # its targets crash at start-up under ASan, so they run without a
+        # sanitizer (panics and hangs are still found; the parsers are safe Rust).
+        include:
+          - { target: wal_decoder_record, sanitizer: address }
+          - { target: page_service_request, sanitizer: address }
+          - { target: proxy_startup, sanitizer: none }
+          - { target: proxy_scram, sanitizer: none }
+    env:
+      TARGET: ${{ matrix.target }}
+      SANITIZER: ${{ matrix.sanitizer }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # vendor/postgres-v* (from ostrium-labs/postgres): postgres_ffi's bindings need the headers.
+          submodules: true
+          persist-credentials: false
+      - name: Build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bison flex libreadline-dev zlib1g-dev libssl-dev libicu-dev libseccomp-dev \
+            pkg-config protobuf-compiler libclang-dev
+      - name: Postgres headers
+        run: make -j"$(nproc)" postgres-headers > "$RUNNER_TEMP/headers.log" 2>&1 || { tail -50 "$RUNNER_TEMP/headers.log"; exit 1; }
+      - name: Toolchain and cargo-fuzz
+        run: |
+          rustup toolchain install "$NIGHTLY" --profile minimal
+          # cargo-fuzz itself needs a newer rustc than the fork's 1.88 (rust-toolchain.toml):
+          # its dependency cargo-platform 0.3.3 requires 1.91.
+          rustup toolchain install stable --profile minimal
+          cargo +stable install cargo-fuzz --locked --version "$CARGO_FUZZ_VERSION"
+      - name: Build the target (fuzz_targets_build)
+        run: |
+          # cargo fuzz has no --locked: refuse a Cargo.lock that needs changes first.
+          cargo metadata --locked --format-version 1 > /dev/null
+          cargo "+$NIGHTLY" fuzz build --sanitizer "$SANITIZER" "$TARGET"
+
+      - name: Restore the corpus
+        if: github.event_name != 'pull_request'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: fuzz/corpus/${{ matrix.target }}
+          key: loams-fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: loams-fuzz-corpus-${{ matrix.target }}-
+      - name: Fuzz
+        id: fuzz
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p "fuzz/corpus/$TARGET" "fuzz/artifacts/$TARGET"
+          set +e
+          # The output stays in a file: it may describe a vulnerability.
+          # RUST_BACKTRACE: sla.py keys a panic in std or a dependency on our frame.
+          RUST_BACKTRACE=1 cargo "+$NIGHTLY" fuzz run --sanitizer "$SANITIZER" "$TARGET" "fuzz/corpus/$TARGET" -- \
+            -max_total_time="$FUZZ_SECONDS" > "$RUNNER_TEMP/fuzz.log" 2>&1
+          status=$?
+          set -e
+          # libFuzzer stops at the first crash: wait out the rest of the time
+          # budget, so the step's duration does not show it either.
+          if [ "$SECONDS" -lt "$FUZZ_SECONDS" ]; then sleep $((FUZZ_SECONDS - SECONDS)); fi
+          # The status goes to the next step only, never to the log.
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+      - name: Save the corpus
+        if: always() && github.event_name != 'pull_request'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: fuzz/corpus/${{ matrix.target }}
+          key: loams-fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+      - name: File crashes privately
+        # Runs on every scheduled run, so a skipped step cannot say "no crash".
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.LOAMS_SLA_TOKEN }}
+          STATUS: ${{ steps.fuzz.outputs.status }}
+        run: |
+          if [ "$STATUS" = 0 ]; then exit 0; fi
+          shopt -s nullglob
+          artifacts=("fuzz/artifacts/$TARGET"/*)
+          if [ ${#artifacts[@]} -eq 0 ]; then
+            # The fuzzer failed without writing an input: file its output anyway.
+            : > "$RUNNER_TEMP/no-artifact"
+            artifacts=("$RUNNER_TEMP/no-artifact")
+          fi
+          for artifact in "${artifacts[@]}"; do
+            python3 -I scripts/loams/sla.py file --repo "$SLA_REPO" --kind fuzz \
+              --target "$TARGET" --artifact "$artifact" --log "$RUNNER_TEMP/fuzz.log"
+          done

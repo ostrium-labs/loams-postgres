@@ -1,0 +1,90 @@
+# Build hygiene (NF1 Task 7, LP-0002 to LP-0006): no upstream workflow is
+# left, nothing CDDL is in the graph (cargo deny licenses; no inferno), and no
+# file that decides a download names neondatabase or cache.neon.build
+# (scripts/loams/check-no-private-sources.sh). It is part of the gate's G0
+# (loams-gate.yml, NF1 Task 16) and a required check on main.
+name: loams-hygiene
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  # loams-release.yml runs it as part of the gate (NF1 Task 13).
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  # github.workflow is the caller's name when loams-release.yml calls this.
+  group: loams-hygiene-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # cargo-deny 0.20.2 (2026-07-09), checked by sha256, as in loams-advisories.yml.
+  CARGO_DENY_URL: https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/cargo-deny-0.20.2-x86_64-unknown-linux-musl.tar.gz
+  CARGO_DENY_SHA256: 9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f
+  # cargo-about 0.9.2 (2026-08-18), the version the storage Dockerfile uses.
+  CARGO_ABOUT_URL: https://github.com/EmbarkStudios/cargo-about/releases/download/0.9.2/cargo-about-0.9.2-x86_64-unknown-linux-musl.tar.gz
+  CARGO_ABOUT_SHA256: 9099a59e820c38a68b9d65f300662a567d56562f9a10f6aa4c7e86c17c2566af
+
+jobs:
+  hygiene:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # neon-fork-point is needed: no_private_sources checks that it fails there.
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - name: Install cargo-deny
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/deny.tgz" "$CARGO_DENY_URL"
+          echo "$CARGO_DENY_SHA256  $RUNNER_TEMP/deny.tgz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/deny.tgz" -C "$RUNNER_TEMP" --strip-components=1
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: Install cargo-about
+        run: |
+          mkdir -p "$RUNNER_TEMP/about"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/about.tgz" "$CARGO_ABOUT_URL"
+          echo "$CARGO_ABOUT_SHA256  $RUNNER_TEMP/about.tgz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/about.tgz" -C "$RUNNER_TEMP/about" --strip-components=1
+          echo "CARGO_ABOUT=$RUNNER_TEMP/about/cargo-about" >> "$GITHUB_ENV"
+      - name: Hygiene tests
+        # The toolchain comes from rust-toolchain.toml (rustup is on the runner).
+        run: scripts/loams/tests/test_hygiene.sh
+      - name: The image build context holds the workspace
+        run: python3 -I scripts/loams/tests/test_docker_context.py
+      - name: The compute build plan
+        run: python3 -I scripts/loams/tests/test_compute_matrix.py
+      - name: The compute image's source artifact
+        run: python3 -I scripts/loams/tests/test_compute_sources.py
+      - name: Release notes and the pin document
+        run: python3 -I scripts/loams/tests/test_release.py
+      - name: The SBOM cut for attest-sbom
+        run: python3 -I scripts/loams/tests/test_slim_sbom.py
+      - name: The gate's bookkeeping, G2's subset, the workflows' script modes and main's required checks (NF1 Task 16)
+        env:
+          # Read-only; the rules endpoint is public, the token only lifts the rate limit.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 -I scripts/loams/tests/test_gate.py
+          python3 -I scripts/loams/gate.py subset-check
+          python3 -I scripts/loams/gate.py exec-check
+          python3 -I scripts/loams/gate.py required-checks
+      - name: The Postgres minor merge (NF1 Task 17)
+        run: scripts/loams/tests/test_postgres_merge.sh
+      - name: The Postgres fork's branches (NF1 Task 15)
+        env:
+          # Read-only; the endpoints are public, the token only lifts the rate limit.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 -I scripts/loams/tests/test_postgres_branches.py
+          python3 -I scripts/loams/check-postgres-branches.py
+      - name: The Postgres major format diffs are fully classified (NF2 Task 1)
+        run: |
+          python3 -I scripts/loams/tests/test_format_diff.py
+          python3 -I scripts/loams/format-diff-check.py

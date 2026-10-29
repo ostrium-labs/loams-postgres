@@ -211,6 +211,7 @@ impl DecodedWALRecord {
                 PgMajorVersion::PG15 => info == crate::v15::bindings::XLOG_DBASE_CREATE_FILE_COPY,
                 PgMajorVersion::PG16 => info == crate::v16::bindings::XLOG_DBASE_CREATE_FILE_COPY,
                 PgMajorVersion::PG17 => info == crate::v17::bindings::XLOG_DBASE_CREATE_FILE_COPY,
+                PgMajorVersion::PG18 => info == crate::v18::bindings::XLOG_DBASE_CREATE_FILE_COPY,
             }
         } else {
             false
@@ -1005,7 +1006,12 @@ impl XlXactParsedRecord {
     /// Decode a XLOG_XACT_COMMIT/ABORT/COMMIT_PREPARED/ABORT_PREPARED
     /// record. This should agree with the ParseCommitRecord and ParseAbortRecord
     /// functions in PostgreSQL (in src/backend/access/rmgr/xactdesc.c)
-    pub fn decode(buf: &mut Bytes, mut xid: TransactionId, xl_info: u8) -> XlXactParsedRecord {
+    pub fn decode(
+        buf: &mut Bytes,
+        mut xid: TransactionId,
+        xl_info: u8,
+        pg_version: PgMajorVersion,
+    ) -> XlXactParsedRecord {
         let info = xl_info & pg_constants::XLOG_XACT_OPMASK;
         // The record starts with time of commit/abort
         let xact_time = buf.get_i64_le();
@@ -1058,8 +1064,13 @@ impl XlXactParsedRecord {
                 "XLOG_XACT_COMMIT-XACT_XINFO_HAS_DROPPED_STAT nitems {}",
                 nitems
             );
-            let sizeof_xl_xact_stats_item = 12;
-            buf.advance((nitems * sizeof_xl_xact_stats_item).try_into().unwrap());
+            // 12 bytes up to 17, 16 from 18 (the objid became 64-bit). A wrong
+            // size shifts every later section: the two-phase xid and the
+            // origin (Loams-Patch LP-0041, format diff F15).
+            let sizeof_xl_xact_stats_item: usize =
+                crate::dispatch_pgversion!(pg_version, pgv::bindings::SIZEOF_XL_XACT_STATS_ITEM);
+            let nitems: usize = nitems.try_into().unwrap();
+            buf.advance(nitems * sizeof_xl_xact_stats_item);
         }
 
         if xinfo & pg_constants::XACT_XINFO_HAS_INVALS != 0 {
@@ -1075,6 +1086,14 @@ impl XlXactParsedRecord {
         if xinfo & pg_constants::XACT_XINFO_HAS_TWOPHASE != 0 {
             xid = buf.get_u32_le();
             tracing::debug!("XLOG_XACT_COMMIT-XACT_XINFO_HAS_TWOPHASE xid {}", xid);
+            // The GID follows the two-phase xid, NUL-terminated and unaligned
+            // (xactdesc.c's ParseCommitRecord). Skipping it is what puts the
+            // origin below at the right offset (Loams-Patch LP-0042; every
+            // major, found by the 18 format diff).
+            if xinfo & pg_constants::XACT_XINFO_HAS_GID != 0 {
+                let len = buf.iter().position(|b| *b == 0).map(|n| n + 1).unwrap_or(buf.len());
+                buf.advance(len);
+            }
         }
 
         let origin_lsn = if xinfo & pg_constants::XACT_XINFO_HAS_ORIGIN != 0 {
@@ -1236,4 +1255,188 @@ pub fn describe_postgres_wal_record(record: &Bytes) -> Result<String, Deserializ
     };
 
     Ok(String::from(result))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bytes::{BufMut, BytesMut};
+
+    /// The main data of a commit or abort record, laid out as xact.c's
+    /// XactLogCommitRecord writes it.
+    pub(crate) struct XactBody {
+        pub xinfo: u32,
+        pub db: Option<(Oid, Oid)>,
+        pub subxacts: Vec<TransactionId>,
+        pub rels: Vec<(Oid, Oid, Oid)>,
+        /// (kind, dboid, objid) of each dropped stats item.
+        pub stats: Vec<(i32, Oid, u64)>,
+        pub nmsgs: i32,
+        pub twophase_xid: Option<TransactionId>,
+        pub gid: Option<&'static str>,
+        pub origin: Option<(u64, i64)>,
+    }
+
+    impl XactBody {
+        pub(crate) fn encode(&self, pg_version: PgMajorVersion) -> (u8, Bytes) {
+            let mut b = BytesMut::new();
+            b.put_i64_le(800_000_000); // xact_time
+            let mut xinfo = self.xinfo;
+            if self.db.is_some() {
+                xinfo |= pg_constants::XACT_XINFO_HAS_DBINFO;
+            }
+            if !self.subxacts.is_empty() {
+                xinfo |= pg_constants::XACT_XINFO_HAS_SUBXACTS;
+            }
+            if !self.rels.is_empty() {
+                xinfo |= pg_constants::XACT_XINFO_HAS_RELFILENODES;
+            }
+            if !self.stats.is_empty() {
+                xinfo |= crate::v15::bindings::XACT_XINFO_HAS_DROPPED_STATS;
+            }
+            if self.nmsgs > 0 {
+                xinfo |= pg_constants::XACT_XINFO_HAS_INVALS;
+            }
+            if self.twophase_xid.is_some() {
+                xinfo |= pg_constants::XACT_XINFO_HAS_TWOPHASE;
+            }
+            if self.gid.is_some() {
+                xinfo |= pg_constants::XACT_XINFO_HAS_GID;
+            }
+            if self.origin.is_some() {
+                xinfo |= pg_constants::XACT_XINFO_HAS_ORIGIN;
+            }
+            b.put_u32_le(xinfo);
+            if let Some((db, ts)) = self.db {
+                b.put_u32_le(db);
+                b.put_u32_le(ts);
+            }
+            if !self.subxacts.is_empty() {
+                b.put_i32_le(self.subxacts.len() as i32);
+                self.subxacts.iter().for_each(|x| b.put_u32_le(*x));
+            }
+            if !self.rels.is_empty() {
+                b.put_i32_le(self.rels.len() as i32);
+                for (spc, db, rel) in &self.rels {
+                    b.put_u32_le(*spc);
+                    b.put_u32_le(*db);
+                    b.put_u32_le(*rel);
+                }
+            }
+            if !self.stats.is_empty() {
+                b.put_i32_le(self.stats.len() as i32);
+                for (kind, dboid, objid) in &self.stats {
+                    b.put_i32_le(*kind);
+                    b.put_u32_le(*dboid);
+                    if pg_version >= PgMajorVersion::PG18 {
+                        // xl_xact_stats_item at 18: objid_lo, objid_hi.
+                        b.put_u32_le(*objid as u32);
+                        b.put_u32_le((*objid >> 32) as u32);
+                    } else {
+                        b.put_u32_le(*objid as u32); // objoid
+                    }
+                }
+            }
+            if self.nmsgs > 0 {
+                b.put_i32_le(self.nmsgs);
+                b.put_bytes(0xAB, 16 * self.nmsgs as usize);
+            }
+            if let Some(xid) = self.twophase_xid {
+                b.put_u32_le(xid);
+                if let Some(gid) = self.gid {
+                    b.put_slice(gid.as_bytes());
+                    b.put_u8(0);
+                }
+            }
+            if let Some((lsn, ts)) = self.origin {
+                b.put_u64_le(lsn);
+                b.put_i64_le(ts);
+            }
+            (pg_constants::XLOG_XACT_HAS_INFO, b.freeze())
+        }
+    }
+
+    /// A commit with dropped relations, dropped stats, invalidations, a
+    /// two-phase xid and a replication origin decodes every section at every
+    /// major. At 18 a stats item is 16 bytes (format diff F15): reading it
+    /// as 12 shifts every later section, so the two-phase xid (the xid whose
+    /// CLOG bits the pageserver sets) and the origin LSN come out wrong.
+    #[test]
+    fn xact_stats_item_size_pg18() {
+        for pg_version in PgMajorVersion::ALL {
+            let stats = if *pg_version >= PgMajorVersion::PG15 {
+                // relation, function and a 64-bit objid (18 stores the high half)
+                vec![(2, 5, 16384u64), (3, 5, 0x1_0000_4001), (2, 5, 16390)]
+            } else {
+                vec![]
+            };
+            for info in [
+                pg_constants::XLOG_XACT_COMMIT,
+                pg_constants::XLOG_XACT_ABORT,
+                pg_constants::XLOG_XACT_COMMIT_PREPARED,
+                pg_constants::XLOG_XACT_ABORT_PREPARED,
+            ] {
+                let body = XactBody {
+                    xinfo: 0,
+                    db: Some((5, 1663)),
+                    subxacts: vec![1001, 1002],
+                    rels: vec![(1663, 5, 16384), (1663, 5, 16390)],
+                    stats: stats.clone(),
+                    nmsgs: if info == pg_constants::XLOG_XACT_COMMIT { 3 } else { 0 },
+                    twophase_xid: Some(741),
+                    gid: None,
+                    origin: Some((0x0000_0001_2345_6780, 42)),
+                };
+                let (has_info, data) = body.encode(*pg_version);
+                let mut buf = data.clone();
+                let parsed =
+                    XlXactParsedRecord::decode(&mut buf, 999, info | has_info, *pg_version);
+                let ctx = format!("{pg_version} info {info:#x}");
+                assert_eq!(parsed.subxacts, vec![1001, 1002], "{ctx}");
+                assert_eq!(parsed.xnodes.len(), 2, "{ctx}");
+                assert_eq!(parsed.xnodes[1].relnode, 16390, "{ctx}");
+                assert_eq!(parsed.xid, 741, "{ctx}: two-phase xid");
+                assert_eq!(
+                    parsed.origin_lsn,
+                    Lsn(0x0000_0001_2345_6780),
+                    "{ctx}: origin LSN"
+                );
+                assert_eq!(buf.remaining(), 8, "{ctx}: only the origin timestamp is left");
+            }
+        }
+    }
+
+    /// A COMMIT PREPARED with a GID and a replication origin: the origin LSN
+    /// is read after the GID, at every major (Loams-Patch LP-0042).
+    #[test]
+    fn xact_gid_then_origin_decodes() {
+        for pg_version in PgMajorVersion::ALL {
+            let body = XactBody {
+                xinfo: 0,
+                db: Some((5, 1663)),
+                subxacts: vec![],
+                rels: vec![(1663, 5, 16400)],
+                stats: vec![],
+                nmsgs: 0,
+                twophase_xid: Some(4242),
+                gid: Some("loams-gid-1"),
+                origin: Some((0x0000_0001_0000_0abc, 123_456)),
+            };
+            let (info, bytes) = body.encode(*pg_version);
+            let mut buf = bytes.clone();
+            let parsed = XlXactParsedRecord::decode(
+                &mut buf,
+                777,
+                pg_constants::XLOG_XACT_COMMIT_PREPARED | info,
+                *pg_version,
+            );
+            assert_eq!(parsed.xid, 4242, "{pg_version}: two-phase xid");
+            assert_eq!(parsed.xnodes.len(), 1, "{pg_version}: dropped relations");
+            assert_eq!(
+                parsed.origin_lsn,
+                Lsn(0x0000_0001_0000_0abc),
+                "{pg_version}: origin after the GID"
+            );
+        }
+    }
 }

@@ -1,0 +1,59 @@
+# DCO: every commit after neon-fork-point is signed off (scripts/loams/check-dco.sh),
+# and the governance files hold (NOTICE, CODEOWNERS). Required on main as the
+# check `dco` once Actions are enabled on this repository.
+name: loams-dco
+
+# Deliberately has no path filters, so docs-only PRs are checked too.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  # loams-release.yml runs it as part of the gate (NF1 Task 13).
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  # github.workflow is the caller's name when loams-release.yml calls this.
+  group: loams-dco-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dco:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # The whole history and the neon-fork-point tag; no submodules.
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - name: Tests
+        run: bash scripts/loams/tests/test-dco.sh
+      - name: Check the history
+        # A pull request's HEAD is GitHub's merge of it into main; merge
+        # commits are skipped, so this checks main plus the PR's commits.
+        # The exemption table is read from main (the PR's base), never from
+        # the PR itself; on a push to main, HEAD went through review.
+        env:
+          EXEMPT_FROM: ${{ github.event.pull_request.base.sha || 'HEAD' }}
+        run: scripts/loams/check-dco.sh
+
+  governance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - name: NOTICE, DCO and CODEOWNERS tests
+        env:
+          # codeowners_valid asks GitHub about the commit under test.
+          GH_TOKEN: ${{ github.token }}
+          CODEOWNERS_REF: ${{ github.sha }}
+        run: python3 -I scripts/loams/tests/test_governance.py

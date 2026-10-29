@@ -1,0 +1,39 @@
+# G2, the gate's neon_local tier (LP-0015, NF1 Task 16; design §51 §6.4):
+# Neon's test_runner subset, run once per Postgres major by loams-gate.yml
+# through scripts/loams/gate.sh: every leg (`gate.py legs`: the pin file's
+# supported, maintenance and beta majors) runs every line, so each test here
+# runs at every major. A test that only makes sense at some majors skips itself
+# by `env.pg_version`, as test_loams_vm_clear does below 16. scripts/loams/gate-subset.py
+# checks that every name exists (loams-hygiene.yml, on every pull request).
+#
+# A line is a test function, `test_runner/regress/<file>.py::<function>`; all of
+# its parameters run. A known flake is skipped only with an issue:
+#   deselect <pytest node id, with parameters> <https://github.com/... issue URL>
+# Never delete a test to make the gate pass.
+
+# pg_regress through Neon: unsharded and four shards, both reldir formats
+test_runner/regress/test_pg_regress.py::test_pg_regress
+# branching: at an LSN behind the tip, and many branches under pgbench
+test_runner/regress/test_branch_behind.py::test_branch_behind
+test_runner/regress/test_branching.py::test_branching_with_pgbench
+# compute_ctl: the spec, and reconfigure on a running compute
+test_runner/regress/test_compute_reconfigure.py::test_compute_reconfigure
+# import_pgdata (fast_import's path into a timeline)
+test_runner/regress/test_import_pgdata.py::test_pgdata_import_smoke
+# the local file cache
+test_runner/regress/test_lfc_resize.py::test_lfc_resize
+test_runner/regress/test_local_file_cache.py::test_local_file_cache_unlink
+# visibility-map clears read back through the pageserver (NF1 Task 17, docs/loams/pg17-vm-clear.md),
+# at every major (D1118)
+test_runner/regress/test_vm_bits.py::test_vm_bit_clear
+test_runner/regress/test_loams_vm_clear.py::test_loams_vm_clear_without_vm_block_reference
+# data checksums off at 18, read back after restarts and on a branch (NF2 Task 5, D1111; skips below 18)
+test_runner/regress/test_loams_pg18_checksums.py::test_pgbench_checksums_survive_restart_and_branch_pg18
+# multixacts through the pageserver (16.15 and 17.11 set the next multixid's offset, LP-0016)
+test_runner/regress/test_multixact.py::test_multixact
+# NF2 Tasks 3 and 6 add their tests here once they exist (subset-check refuses
+# a name that does not): read_stream_seqscan_pg18 and
+# slot_invalidation_survives_restart_pg<N>; Task 21 adds multixact_wraparound_pg19.
+# the walproposer against safekeepers
+test_runner/regress/test_wal_acceptor.py::test_restarts
+test_runner/regress/test_wal_acceptor.py::test_restart_endpoint

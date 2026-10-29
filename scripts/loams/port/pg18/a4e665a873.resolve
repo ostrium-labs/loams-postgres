@@ -1,0 +1,89 @@
+diff --git a/src/backend/storage/buffer/localbuf.c b/src/backend/storage/buffer/localbuf.c
+--- a/src/backend/storage/buffer/localbuf.c
++++ b/src/backend/storage/buffer/localbuf.c
+@@ -17,6 +17,7 @@
+ 
+ #include "access/parallel.h"
+ #include "executor/instrument.h"
++#include "miscadmin.h"
+ #include "pgstat.h"
+ #include "storage/aio.h"
+ #include "storage/buf_internals.h"
+@@ -25,8 +26,11 @@
+ #include "utils/guc_hooks.h"
+ #include "utils/memdebug.h"
+ #include "utils/memutils.h"
++#include "utils/rel.h"
+ #include "utils/resowner.h"
+ 
++/* NEON: prevent eviction of the buffer of target page */
++extern Buffer wal_redo_buffer;
+ 
+ /*#define LBDEBUG*/
+ 
+@@ -250,7 +254,15 @@
+ 
+ 		if (LocalRefCount[victim_bufid] == 0)
+ 		{
+-			uint32		buf_state = pg_atomic_read_u32(&bufHdr->state);
++			uint32		buf_state;
++
++			if (-victim_bufid - 1 == wal_redo_buffer)
++			{
++				/* ZENITH: Prevent eviction of the buffer with target wal redo page */
++				continue;
++			}
++
++			buf_state = pg_atomic_read_u32(&bufHdr->state);
+ 
+ 			if (BUF_STATE_GET_USAGECOUNT(buf_state) > 0)
+ 			{
+diff --git a/src/backend/utils/misc/guc_tables.c b/src/backend/utils/misc/guc_tables.c
+--- a/src/backend/utils/misc/guc_tables.c
++++ b/src/backend/utils/misc/guc_tables.c
+@@ -88,6 +88,7 @@
+ #include "storage/pg_shmem.h"
+ #include "storage/predicate.h"
+ #include "storage/procnumber.h"
++#include "storage/smgr.h"
+ #include "storage/standby.h"
+ #include "tcop/backend_startup.h"
+ #include "tcop/tcopprot.h"
+@@ -2154,6 +2155,15 @@
+ 		NULL, NULL, NULL
+ 	},
+ 
++	{
++		{"neon_test_evict", PGC_POSTMASTER, UNGROUPED,
++			gettext_noop("Evict unpinned pages (for better test coverage)"),
++		},
++		&zenith_test_evict,
++		false,
++		NULL, NULL, NULL
++	},
++
+ 	/* End-of-list marker */
+ 	{
+ 		{NULL, 0, 0, NULL, NULL}, NULL, false, NULL, NULL, NULL
+diff --git a/src/include/storage/bufmgr.h b/src/include/storage/bufmgr.h
+--- a/src/include/storage/bufmgr.h
++++ b/src/include/storage/bufmgr.h
+@@ -175,6 +175,7 @@
+ 
+ extern PGDLLIMPORT const PgAioHandleCallbacks aio_shared_buffer_readv_cb;
+ extern PGDLLIMPORT const PgAioHandleCallbacks aio_local_buffer_readv_cb;
++extern bool	zenith_test_evict;
+ 
+ /* in buf_init.c */
+ extern PGDLLIMPORT char *BufferBlocks;
+@@ -184,8 +185,8 @@
+ extern PGDLLIMPORT Block *LocalBufferBlockPointers;
+ extern PGDLLIMPORT int32 *LocalRefCount;
+ 
+-/* upper limit for effective_io_concurrency */
+-#define MAX_IO_CONCURRENCY 1000
++/* upper limit for effective_io_concurrency (better to he power of 2) */
++#define MAX_IO_CONCURRENCY 1024
+ 
+ /* special block number for ReadBuffer() */
+ #define P_NEW	InvalidBlockNumber	/* grow the file to get a new page */
