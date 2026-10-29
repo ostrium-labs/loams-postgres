@@ -27,7 +27,9 @@ Each `loams/pg<N>` starts at the revision `main`'s `vendor/revisions.json` pinne
 
 | Major | Base | Series | Current minor |
 |---|---|---|---|
-| 18 | `724edf9b` (`REL_18_6`) | `REL_17_11..loams/pg17`, ported by `loams/port-pg18` | 18.6 |
+| 18 | `724edf9b` (`REL_18_6`) | `REL_17_11..loams/pg17`, ported by `loams/port-pg18`; `loams/pg18` = `735664df` (2026-10-29) | 18.6 |
+
+**The port as done (2026-10-29).** The series is 99 commits. 70 cherry-picked unchanged. 21 needed a resolution, each a `resolve` file next to the map; one is Neon's own 18 version (`a6f2a366`, index-scan prefetch only). 4 were left out: Neon's CI workflow, prefetch in autoprewarm and in heap vacuum (18 reads both through the read stream, which prefetches through the smgr), and the `strchrnul()` detection fix, which 18 has. 3 were empty because 18 already has them. Our own commits are the D1112 revert of 18.6's VM block references (LP-0037, owner ruling 2026-10-29), Neon's guard against invalidation processing in WAL redo (LP-0036) and two fixes for call sites 18.6 added (LP-0038). `make check` and `make installcheck-world` pass on `735664df` (run 40842834855; promoted by run 40843653183).
 
 ## Why the Task 15 branches were retired (owner, 2026-10-17)
 
@@ -92,9 +94,12 @@ gh workflow run loams-postgres-merge.yml --repo ostrium-labs/loams-postgres \
 1. **The series** is `git rev-list --reverse --topo-order --no-merges REL_17_11..loams/pg17`. Topological order is the only order in which every commit's parent state exists. `docs/core_changes.md` groups the series by area and is not an apply order. Merge commits (Neon's merges of 17.1 to 17.5, our 17.11 merge) are left out. Fixes made inside a merge, like 17.11's `_bt_get_endpoint()` argument, are not carried; G1's build finds what 18 needs.
 2. **Each commit** is cherry-picked. Its message gets `(ported from <17 sha>)`, `Loams-Patch: LP-0035` and the bot's sign-off, and its author is kept. A commit that already carries a `Loams-Patch` trailer (the governance commit, LP-0000) keeps it. A commit whose change `REL_18_6` already has is left out as "empty".
 3. **The map**, `scripts/loams/port/pg18/map`, decides a commit that does not cherry-pick as it is:
-   - `patch <file>`: apply a resolution checked in next to the map (a `git diff` against the port at that point). The commit records `Resolved for 18 by scripts/loams/port/pg18/<file>`.
+   - `resolve <file>`: cherry-pick the commit as usual, put the files `<file>` names back to the port's version, and apply `<file>`, a diff from that version, to them. `#keep-ours <path>` keeps the port's version of a conflicted file, and `#keep-deleted <path>` accepts the port's deletion of one. This is the form to use: the commit's clean files apply by 3-way merge, as unmapped commits do. The commit records `Resolved for 18 by scripts/loams/port/pg18/<file>`.
+   - `patch <file>`: apply a whole `git diff` against the port at that point instead of the commit. In a blobless clone the 17-side blob ids of a cherry-picked diff cannot be fetched, so `git apply` has no 3-way fallback; prefer `resolve`.
    - `neon <sha>`: take Neon's own 18 version of the change from `REL_18_STABLE_neon`, with `(cherry picked from neondatabase/postgres <sha>)`. It is a reference for a resolution, never a base.
    - `skip <reason>`: leave it out.
+   - `before <mbox>` and `end <mbox>`: our own commit (`git format-patch` output, with its own message and `Loams-Patch` id), applied before a series commit or after the series, once (a resumed run recognises it by patch-id).
+   GitHub sometimes answers a batched lazy fetch of missing blobs with "not our ref", although it serves the same blobs one at a time; the port then fetches them one by one and tries the cherry-pick again.
 4. **A conflict** stops the port. The artifact `postgres-port-<major>-<tag>-<attempt>` holds what a resolution needs, so no clone is needed: `conflicts.txt`, `conflicts.diff`, `commit.patch`, `remaining.txt`, `series.txt` (every commit's state), and `files/{ours,base,theirs,merged,upstream}/<path>` for every file the commit touches. Here `ours` is the port so far, `base` and `theirs` are the 17 commit's parent and the commit, and `upstream` is `REL_18_6`. Write the resolved files, make the diff against `ours`, add it to the map and run again. `keep_going` surveys the whole series (each conflict is recorded under `conflicts/<n>-<sha>/` and left out), and never pushes.
 5. **`push`** creates `loams/pg18` at `REL_18_6` if it is missing (the fork lacked 18.6's objects, so the REST API could not create it), and pushes the progress to `loams/port-pg18`. A later run starts there and does not apply a commit whose `(ported from <sha>)` is already on it.
 6. **`check`** builds the complete series on its own and runs `make check` and `make installcheck-world`. **`promote`** runs the checks and then fast-forwards `loams/pg18` to exactly the commit they built. `vendor/postgres-v18` then points at it.

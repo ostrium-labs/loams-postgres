@@ -4,8 +4,11 @@ ROOT_PROJECT_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 # managers.
 POSTGRES_INSTALL_DIR ?= $(ROOT_PROJECT_DIR)/pg_install
 
-# Supported PostgreSQL versions
+# Supported PostgreSQL versions: Postgres and the pgxn extensions build for these.
 POSTGRES_VERSIONS = v17 v16 v15 v14
+# Postgres builds for these too, but not yet the pgxn extensions or images:
+# 18 is beta (NF2 Task 14), and pgxn/neon builds against it with NF2 Task 6.
+POSTGRES_CORE_VERSIONS = v18
 
 # CARGO_BUILD_FLAGS: Extra flags to pass to `cargo build`. `--locked`
 # and `--features testing` are popular examples.
@@ -239,7 +242,7 @@ lint-openapi-spec: build-tools/node_modules
 # installed, by setting the PG_INSTALL_CACHED variable, skip it.
 ifdef PG_INSTALL_CACHED
 postgres-install: skip-install
-$(foreach pg_version,$(POSTGRES_VERSIONS),postgres-install-$(pg_version)): skip-install
+$(foreach pg_version,$(POSTGRES_VERSIONS) $(POSTGRES_CORE_VERSIONS),postgres-install-$(pg_version)): skip-install
 postgres-headers-install:
 	+@echo "Skipping installation of PostgreSQL headers because PG_INSTALL_CACHED is set"
 skip-install:

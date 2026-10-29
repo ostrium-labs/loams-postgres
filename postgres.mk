@@ -14,7 +14,7 @@
 #
 # Variables passed from the parent Makefile that control what gets
 # installed and where:
-# - POSTGRES_VERSIONS
+# - POSTGRES_VERSIONS, POSTGRES_CORE_VERSIONS (Postgres only, no pgxn extensions)
 # - POSTGRES_INSTALL_DIR
 # - BUILD_DIR
 #
@@ -57,7 +57,7 @@ postgres-check-%: postgres-install-%
 # 'make postgres-install-v14 postgres-install-v15 postgres-install-v16 postgres-install-v17'
 all_version_targets=postgres-install postgres-headers-install postgres-check
 .PHONY: $(all_version_targets)
-$(all_version_targets): postgres-%: $(foreach pg_version,$(POSTGRES_VERSIONS),postgres-%-$(pg_version))
+$(all_version_targets): postgres-%: $(foreach pg_version,$(POSTGRES_VERSIONS) $(POSTGRES_CORE_VERSIONS),postgres-%-$(pg_version))
 
 .PHONY: postgres
 postgres: postgres-install
@@ -66,7 +66,7 @@ postgres: postgres-install
 postgres-headers: postgres-headers-install
 
 # 'postgres-v17' is an alias for 'postgres-install-v17' etc.
-$(foreach pg_version,$(POSTGRES_VERSIONS),postgres-$(pg_version)): postgres-%: postgres-install-%
+$(foreach pg_version,$(POSTGRES_VERSIONS) $(POSTGRES_CORE_VERSIONS),postgres-$(pg_version)): postgres-%: postgres-install-%
 
 ###
 ### Intermediate targets
@@ -102,7 +102,7 @@ $(BUILD_DIR)/%/config.status:
 #
 # XXX: I'm not sure why the above rule doesn't work directly. But this accomplishses
 # the same thing
-$(foreach pg_version,$(POSTGRES_VERSIONS),postgres-configure-$(pg_version)): postgres-configure-%: FORCE $(BUILD_DIR)/%/config.status
+$(foreach pg_version,$(POSTGRES_VERSIONS) $(POSTGRES_CORE_VERSIONS),postgres-configure-$(pg_version)): postgres-configure-%: FORCE $(BUILD_DIR)/%/config.status
 
 # Compile and install PostgreSQL (and a few contrib modules used in tests)
 postgres-install-%: postgres-configure-% \
