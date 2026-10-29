@@ -1,0 +1,26 @@
+diff --git a/src/backend/replication/walsender.c b/src/backend/replication/walsender.c
+--- a/src/backend/replication/walsender.c
++++ b/src/backend/replication/walsender.c
+@@ -3588,8 +3588,8 @@
+ 	 * flush location if valid, write otherwise. Tools like pg_receivewal will
+ 	 * usually (unless in synchronous mode) return an invalid flush location.
+ 	 */
+-	replicatedPtr = XLogRecPtrIsInvalid(MyWalSnd->flush) ?
+-		MyWalSnd->write : MyWalSnd->flush;
++	// XXX Neon uses flush_lsn to pass extra payload, so use write_lsn here
++	replicatedPtr = MyWalSnd->write;
+ 
+ 	if (WalSndCaughtUp && sentPtr == replicatedPtr &&
+ 		!pq_is_send_pending())
+diff --git a/src/include/storage/bufmgr.h b/src/include/storage/bufmgr.h
+--- a/src/include/storage/bufmgr.h
++++ b/src/include/storage/bufmgr.h
+@@ -175,7 +175,7 @@
+ 
+ extern PGDLLIMPORT const PgAioHandleCallbacks aio_shared_buffer_readv_cb;
+ extern PGDLLIMPORT const PgAioHandleCallbacks aio_local_buffer_readv_cb;
+-extern bool	zenith_test_evict;
++extern bool	neon_test_evict;
+ 
+ /* in buf_init.c */
+ extern PGDLLIMPORT char *BufferBlocks;
