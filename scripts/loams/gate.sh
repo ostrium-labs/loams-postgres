@@ -13,13 +13,18 @@
 #   gate.sh g2 MAJOR       unpack the build, then Neon's test_runner on
 #                          scripts/loams/gate-subset.txt with neon_local, for
 #                          one Postgres major.
+#   gate.sh upgrade FROM TO   G2's `upgrade` job: Path 1 (fast_import into a
+#                          new timeline) from Postgres FROM to TO, with
+#                          per-table checksums (design §62 §8, D1115). Its body
+#                          lands with NF2 Task 13; until then it fails, so a
+#                          pair the gate runs is never reported as a pass.
 #
 # Nothing here needs a secret or a cloud account: the remote-storage tests that
 # need a real S3 or Azure account skip themselves without one, and test_runner
 # uses its own mock S3.
 set -euo pipefail
 
-tier=${1:?usage: gate.sh g1 | g2-build OUT | g2 MAJOR}
+tier=${1:?usage: gate.sh g1 | g2-build OUT | g2 MAJOR | upgrade FROM TO}
 jobs=$(nproc)
 
 # G1's crates (design §51 §6.4). The features named are the ones the crates
@@ -90,8 +95,16 @@ case "$tier" in
     ./scripts/pytest -n 2 --dist=loadgroup --tb=short -rA "${args[@]}"
     ;;
 
+  upgrade)
+    from=${2:?gate.sh upgrade FROM TO}
+    to=${3:?gate.sh upgrade FROM TO}
+    [[ $from =~ ^[0-9]+$ && $to =~ ^[0-9]+$ ]] || { echo "FROM and TO must be numbers, not $from and $to"; exit 2; }
+    echo "::error title=g2-upgrade::Path 1 from Postgres $from to $to is not implemented yet (NF2 Task 13): not run, not passed"
+    exit 1
+    ;;
+
   *)
-    echo "unknown tier $tier (g1, g2-build, g2)"
+    echo "unknown tier $tier (g1, g2-build, g2, upgrade)"
     exit 2
     ;;
 esac
