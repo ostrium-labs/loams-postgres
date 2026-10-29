@@ -54,6 +54,7 @@ Columns:
 | LP-0032 | Least privilege for spec roles: a role gets what the spec asks for; `privileged` opts into Neon's admin attributes and `neon_superuser` | compute | @dina-kar | 2026-10-12 | loams-only | never (Loams' role model, PG2 R11.9) |
 | LP-0033 | `postgres_ffi`'s build finds the server headers in `include/server` too: Postgres installs them there when the prefix names "postgres", as in a `loams-postgres` checkout | build | @dina-kar | 2026-10-14 | upstreamable | never |
 | LP-0034 | The Postgres 18 format diff: `docs/loams/pg18-format-diff.md` (17.11 → 18.6, every item classified per §51 §8.3) and its check, `scripts/loams/format-diff-check.py` in `loams-hygiene.yml` (NF2 Task 1) | pg18 | @dina-kar | 2026-10-28 | loams-only | never |
+| LP-0043 | Postgres 18 in `pgxn/neon`, `neon_rmgr`, `neon_walredo`, `neon_utils` and `neon_test_utils` (NF2 Task 6): version conditionals for 18's APIs; `loams-pgxn-18.yml` builds them against `vendor/postgres-v18` on every pull request that touches them | pg18 | @dina-kar | 2026-10-29 | loams-only | never |
 
 ## Commits without a trailer
 
