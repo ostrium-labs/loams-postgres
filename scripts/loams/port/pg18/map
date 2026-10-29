@@ -71,3 +71,5 @@ b763ab54b98d232a0959371ab1d07f06ed77c49e resolve b763ab54b9.resolve
 0d59c91c1a23e667f1d1169d5f040b3fa0a0ab44 skip superseded at 18: it changes Neon's own heap-vacuum prefetch, which 18 replaces with the read stream (see 19d879fb62 above)
 # Zenith->Neon rename; WalSndDone keeps the fork's write-LSN check (the walproposer uses flush_lsn for its payload).
 353c725b0c76cc82b15af21d8360d03391dc6814 resolve 353c725b0c.resolve
+# Build fixes for call sites 18.6 added (LP-0038).
+end build-fixes-18.6.mbox
