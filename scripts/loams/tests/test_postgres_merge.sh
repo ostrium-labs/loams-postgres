@@ -194,8 +194,7 @@ c1=$(src "c1:")
 rm -rf "$tmp/res"; git init -q "$tmp/res"
 ( cd "$tmp/res"; printf 'a\nREADV\nc\n' > smgr.c; git add -A; git commit -q -m ours
   printf 'a\nREADV\nNEON\nc\n' > smgr.c; git add -A
-  { echo "#keep-deleted zz_gone.c"; git diff --cached; } > "$tmp/map/pg18/$c1.resolve"
-  printf '#keep-ours smgr.c\n#keep-deleted zz_gone.c\n' > "$tmp/map/pg18/$c1.ours" )
+  { echo "#keep-deleted zz_gone.c"; git diff --cached; } > "$tmp/map/pg18/$c1.resolve" )
 printf '%s resolve %s.resolve smgr hook beside 18 readv\n' "$c1" "$c1" > "$tmp/map/pg18/map"
 if port --map "$tmp/map/pg18/map" --push; then
   msg1=$(git -C "$tmp/fork" log -1 --format=%B --grep='^c1:' loams/port-pg18)
@@ -209,6 +208,7 @@ else fail port_map_resolve_after_pick "$(cat "$tmp/log")"; fi
 # #keep-ours: a conflicted file keeps the port's version.
 port_setup conflict
 c1=$(src "c1:")
+printf '#keep-ours smgr.c\n#keep-deleted zz_gone.c\n' > "$tmp/map/pg18/$c1.ours"
 printf '%s resolve %s.ours\n' "$c1" "$c1" > "$tmp/map/pg18/map"
 if port --map "$tmp/map/pg18/map" && [ "$(git -C "$tmp/work" show HEAD:smgr.c | tr '\n' ' ')" = "a READV c " ] &&
    grep -q '^empty .* c1: neon smgr hook' "$tmp/log"; then
