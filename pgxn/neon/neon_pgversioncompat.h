@@ -172,7 +172,9 @@ extern TimeLineID GetWALInsertionTimeLine(void);
 #endif
 
 /* format codes not present in PG17-; but available in PG18+ */
+#if PG_MAJORVERSION_NUM < 18
 #define INT64_HEX_FORMAT "%" INT64_MODIFIER "x"
 #define UINT64_HEX_FORMAT "%" INT64_MODIFIER "x"
+#endif
 
 #endif							/* NEON_PGVERSIONCOMPAT_H */

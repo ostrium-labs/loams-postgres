@@ -531,32 +531,54 @@ CreateFakeSharedMemoryAndSemaphores(void)
 	CommitTsShmemInit();
 	SUBTRANSShmemInit();
 	MultiXactShmemInit();
+#if PG_MAJORVERSION_NUM >= 18
+	/* 18 renamed the shared-memory initialisers (478846e768) */
+	BufferManagerShmemInit();
+#else
 	InitBufferPool();
+#endif
 
 	/*
 	 * Set up lock manager
 	 */
+#if PG_MAJORVERSION_NUM >= 18
+	LockManagerShmemInit();
+#else
 	InitLocks();
+#endif
 
 	/*
 	 * Set up predicate lock manager
 	 */
+#if PG_MAJORVERSION_NUM >= 18
+	PredicateLockShmemInit();
+#else
 	InitPredicateLocks();
+#endif
 
 	/*
 	 * Set up process table
 	 */
 	if (!IsUnderPostmaster)
 		InitProcGlobal();
+#if PG_MAJORVERSION_NUM >= 18
+	ProcArrayShmemInit();
+	BackendStatusShmemInit();
+#else
 	CreateSharedProcArray();
 	CreateSharedBackendStatus();
+#endif
 	TwoPhaseShmemInit();
 	BackgroundWorkerShmemInit();
 
 	/*
 	 * Set up shared-inval messaging
 	 */
+#if PG_MAJORVERSION_NUM >= 18
+	SharedInvalShmemInit();
+#else
 	CreateSharedInvalidationState();
+#endif
 
 	/*
 	 * Set up interprocess signaling mechanisms
