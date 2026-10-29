@@ -58,3 +58,6 @@ dd3f30f5b5a111f22c465238b2248512acf33e39 resolve dd3f30f5b5.resolve
 68b5038f27e493bde6ae552fe066f10cbdfe6a14 resolve 68b5038f27.resolve
 # Custom xlog reader callbacks: 18 passes XL_ROUTINE(...) inline, so the hook runs in StartupDecodingContext only.
 3c15b6565f6c8d36d169ed9ea7412cf90cfb2a8f resolve 3c15b6565f.resolve
+# No kernel readahead under Neon: 18's read stream drops READ_STREAM_SEQUENTIAL and keeps advising sequential
+# reads, after Neon's 18 version (neondatabase/postgres 0d2528755ee8, 3fbcbf13977e).
+01fa3c48664ca030cfb69bb4a350aa9df4691d88 resolve 01fa3c4866.resolve
