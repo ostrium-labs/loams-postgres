@@ -53,3 +53,4 @@ be63d48593dbe9cc824e9f6d116098866dedfcfa resolve be63d48593.resolve
 9536f8ea967ffd11a1fbfd0d92894076cd55d14d resolve 9536f8ea96.resolve
 # WAL redo uses local buffers across 18's read path (AsyncReadBuffers and friends), after Neon's 18 version (neondatabase/postgres 81d4dd1ea1f1) plus 18.6's other-temp check.
 66c8d0d3a186bbd158c38461b2b71cf8e814a389 resolve 66c8d0d3a1.resolve
+dd3f30f5b5a111f22c465238b2248512acf33e39 resolve dd3f30f5b5.resolve
