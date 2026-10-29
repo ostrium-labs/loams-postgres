@@ -63,3 +63,5 @@ dd3f30f5b5a111f22c465238b2248512acf33e39 resolve dd3f30f5b5.resolve
 01fa3c48664ca030cfb69bb4a350aa9df4691d88 resolve 01fa3c4866.resolve
 # B-tree prefetch down-link check: Neon's 18 prefetch already finds the leaf from so->currPos.buf.
 010c0ea2eb06afe76485a33c43954cbcf3d99f86 resolve 010c0ea2eb.resolve
+# Temporary relations keep READ_STREAM_SEQUENTIAL (read through md.c): by persistence in 18's read_stream_begin_impl.
+65c4e46baf56ec05412c7dd63d62faff0b33dcfb resolve 65c4e46baf.resolve
