@@ -26,6 +26,13 @@ impl InterpretedWalRecord {
         next_record_lsn: Lsn,
         pg_version: PgMajorVersion,
     ) -> anyhow::Result<HashMap<ShardIdentity, InterpretedWalRecord>> {
+        // Postgres 18's bindings exist (Loams-Patch LP-0040), but its commit
+        // records carry 16-byte stats items: until the decoder walks them
+        // (LP-0041, NF2 Task 5), an 18 record is an error, never decoded with
+        // 17's layout.
+        if pg_version >= PgMajorVersion::PG18 {
+            anyhow::bail!("decoding Postgres {pg_version} WAL is not supported yet");
+        }
         let mut decoded = DecodedWALRecord::default();
         decode_wal_record(buf, &mut decoded, pg_version)?;
         let xid = decoded.xl_xid;
@@ -406,7 +413,7 @@ impl MetadataRecord {
                     anyhow::bail!("Unknown RMGR {} for Heap decoding", decoded.xl_rmid);
                 }
             }
-            PgMajorVersion::PG17 => {
+            PgMajorVersion::PG17 | PgMajorVersion::PG18 => {
                 if decoded.xl_rmid == pg_constants::RM_HEAP_ID {
                     let info = decoded.xl_info & pg_constants::XLOG_HEAP_OPMASK;
 
@@ -513,7 +520,7 @@ impl MetadataRecord {
         assert_eq!(decoded.xl_rmid, pg_constants::RM_NEON_ID);
 
         match pg_version {
-            PgMajorVersion::PG16 | PgMajorVersion::PG17 => {
+            PgMajorVersion::PG16 | PgMajorVersion::PG17 | PgMajorVersion::PG18 => {
                 let info = decoded.xl_info & pg_constants::XLOG_HEAP_OPMASK;
 
                 match info {
@@ -716,7 +723,7 @@ impl MetadataRecord {
                     return Ok(Some(record));
                 }
             }
-            PgMajorVersion::PG17 => {
+            PgMajorVersion::PG17 | PgMajorVersion::PG18 => {
                 if info == postgres_ffi::v17::bindings::XLOG_DBASE_CREATE_WAL_LOG {
                     tracing::debug!("XLOG_DBASE_CREATE_WAL_LOG: noop");
                 } else if info == postgres_ffi::v17::bindings::XLOG_DBASE_CREATE_FILE_COPY {

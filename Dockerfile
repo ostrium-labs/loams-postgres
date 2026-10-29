@@ -52,14 +52,16 @@ COPY --chown=nonroot vendor/postgres-v14 vendor/postgres-v14
 COPY --chown=nonroot vendor/postgres-v15 vendor/postgres-v15
 COPY --chown=nonroot vendor/postgres-v16 vendor/postgres-v16
 COPY --chown=nonroot vendor/postgres-v17 vendor/postgres-v17
+COPY --chown=nonroot vendor/postgres-v18 vendor/postgres-v18
 COPY --chown=nonroot Makefile Makefile
 COPY --chown=nonroot postgres.mk postgres.mk
 COPY --chown=nonroot scripts/ninstall.sh scripts/ninstall.sh
 
 ENV BUILD_TYPE=release
-# POSTGRES_CORE_VERSIONS (18, beta) stays out of the image until NF2 Task 8 adds /usr/local/v18.
+# 18 (beta, POSTGRES_CORE_VERSIONS) is built for postgres_ffi's headers; the image
+# gains /usr/local/v18 with NF2 Task 8.
 RUN set -e \
-    && mold -run make -j $(nproc) -s postgres POSTGRES_CORE_VERSIONS=
+    && mold -run make -j $(nproc) -s postgres
 
 # 2. Prepare cargo-chef recipe
 FROM $BUILD_TOOLS AS plan

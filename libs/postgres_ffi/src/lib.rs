@@ -62,6 +62,7 @@ macro_rules! for_all_postgres_versions {
         $macro!(v15);
         $macro!(v16);
         $macro!(v17);
+        $macro!(v18);
     };
 }
 
@@ -97,6 +98,7 @@ macro_rules! dispatch_pgversion {
                 $crate::PgMajorVersion::PG15 => v15,
                 $crate::PgMajorVersion::PG16 => v16,
                 $crate::PgMajorVersion::PG17 => v17,
+                $crate::PgMajorVersion::PG18 => v18,
             ]
         )
     };
@@ -129,6 +131,7 @@ macro_rules! enum_pgversion_dispatch {
                 V15 : v15,
                 V16 : v16,
                 V17 : v17,
+                V18 : v18,
             ]
         )
     };
@@ -159,6 +162,7 @@ macro_rules! enum_pgversion {
                 V15 : v15,
                 V16 : v16,
                 V17 : v17,
+                V18 : v18,
             ]
         }
     };
@@ -172,6 +176,7 @@ macro_rules! enum_pgversion {
                 V15 : v15,
                 V16 : v16,
                 V17 : v17,
+                V18 : v18,
             ]
         }
     };
@@ -250,6 +255,22 @@ pub use v14::xlog_utils::{
     XLogFileName, encode_logical_message, get_current_timestamp, to_pg_timestamp,
     try_from_pg_timestamp,
 };
+
+/// The major version whose WAL carries this `XLOG_PAGE_MAGIC`.
+///
+/// An unknown magic is an error: a page of a major we do not know is never
+/// decoded with another major's layout (Loams-Patch LP-0040).
+pub fn pg_major_version_from_page_magic(magic: u16) -> anyhow::Result<PgMajorVersion> {
+    macro_rules! magic_of {
+        ($version:ident) => {
+            if magic == $version::bindings::XLOG_PAGE_MAGIC as u16 {
+                return Ok($version::bindings::MY_PGVERSION);
+            }
+        };
+    }
+    for_all_postgres_versions! { magic_of }
+    anyhow::bail!("unknown XLOG_PAGE_MAGIC {magic:#06X}")
+}
 
 pub fn bkpimage_is_compressed(bimg_info: u8, version: PgMajorVersion) -> bool {
     dispatch_pgversion!(version, pgv::bindings::bkpimg_is_compressed(bimg_info))
@@ -422,6 +443,143 @@ pub mod waldecoder {
                     lsn: self.lsn,
                 })
             )
+        }
+    }
+}
+
+/// The constants that `pg_constants_<version>.rs` copies by hand, as bindgen
+/// reads them from that version's headers (`bindgen_consts.h`).
+#[cfg(test)]
+mod header_consts {
+    macro_rules! header_consts {
+        ($version:ident) => {
+            pub mod $version {
+                #![allow(dead_code)]
+                include!(concat!(
+                    env!("OUT_DIR"),
+                    "/header_consts_",
+                    stringify!($version),
+                    ".rs"
+                ));
+            }
+        };
+    }
+    for_all_postgres_versions! { header_consts }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every constant in pg_constants_v18.rs that a header defines matches
+    /// REL_18_6's headers, and the 18 layouts the decoder depends on have
+    /// the sizes it assumes.
+    #[test]
+    fn pg_constants_v18_match_headers() {
+        use header_consts::v18 as h;
+        use v18::bindings as c;
+
+        assert_eq!(c::XACT_XINFO_HAS_DROPPED_STATS, h::XACT_XINFO_HAS_DROPPED_STATS);
+        assert_eq!(c::XLOG_DBASE_CREATE_FILE_COPY as u32, h::XLOG_DBASE_CREATE_FILE_COPY);
+        assert_eq!(c::XLOG_DBASE_CREATE_WAL_LOG as u32, h::XLOG_DBASE_CREATE_WAL_LOG);
+        assert_eq!(c::XLOG_DBASE_DROP as u32, h::XLOG_DBASE_DROP);
+        assert_eq!(c::BKPIMAGE_APPLY as u32, h::BKPIMAGE_APPLY);
+        assert_eq!(c::BKPIMAGE_COMPRESS_PGLZ as u32, h::BKPIMAGE_COMPRESS_PGLZ);
+        assert_eq!(c::BKPIMAGE_COMPRESS_LZ4 as u32, h::BKPIMAGE_COMPRESS_LZ4);
+        assert_eq!(c::BKPIMAGE_COMPRESS_ZSTD as u32, h::BKPIMAGE_COMPRESS_ZSTD);
+        assert_eq!(c::XLOG_HEAP2_PRUNE_ON_ACCESS as u32, h::XLOG_HEAP2_PRUNE_ON_ACCESS);
+        assert_eq!(c::XLOG_HEAP2_PRUNE_VACUUM_SCAN as u32, h::XLOG_HEAP2_PRUNE_VACUUM_SCAN);
+        assert_eq!(
+            c::XLOG_HEAP2_PRUNE_VACUUM_CLEANUP as u32,
+            h::XLOG_HEAP2_PRUNE_VACUUM_CLEANUP
+        );
+        assert_eq!(c::XLOG_OVERWRITE_CONTRECORD as u32, h::XLOG_OVERWRITE_CONTRECORD);
+        assert_eq!(c::XLOG_CHECKPOINT_REDO as u32, h::XLOG_CHECKPOINT_REDO);
+        assert_eq!(
+            c::SIZEOF_XL_XACT_STATS_ITEM,
+            std::mem::size_of::<h::xl_xact_stats_item>()
+        );
+
+        // 18 adds SharedInvalRelSyncMsg to the union; it stays 16 bytes, so
+        // the commit and standby records' invalidation arrays keep their
+        // stride (format diff F25).
+        assert_eq!(std::mem::size_of::<h::SharedInvalidationMessage>(), 16);
+
+        // §62 §4.1's table, read from the headers.
+        assert_eq!(c::XLOG_PAGE_MAGIC, 0xD118);
+        assert_eq!(h::PG_CONTROL_VERSION, 1800);
+        assert_eq!(h::CATALOG_VERSION_NO, 202506291);
+        assert_eq!(c::PG_MAJORVERSION_NUM, 18);
+
+        // 18's control file gained default_char_signedness (44fe30fdab).
+        let control = c::ControlFileData::default();
+        let _: bool = control.default_char_signedness;
+        assert!(
+            std::mem::size_of::<c::ControlFileData>() <= c::PG_CONTROL_FILE_SIZE as usize
+        );
+    }
+
+    /// The same comparison at 17, which proves the method on a version whose
+    /// constants are known good.
+    #[test]
+    fn pg_constants_v17_match_headers() {
+        use header_consts::v17 as h;
+        use v17::bindings as c;
+        assert_eq!(c::XACT_XINFO_HAS_DROPPED_STATS, h::XACT_XINFO_HAS_DROPPED_STATS);
+        assert_eq!(c::XLOG_CHECKPOINT_REDO as u32, h::XLOG_CHECKPOINT_REDO);
+        assert_eq!(c::XLOG_PAGE_MAGIC, 0xD116);
+        assert_eq!(h::PG_CONTROL_VERSION, 1700);
+        assert_eq!(std::mem::size_of::<h::xl_xact_stats_item>(), 12);
+    }
+
+    #[test]
+    fn xlog_page_magic_v18() {
+        assert_eq!(v18::bindings::XLOG_PAGE_MAGIC, 0xD118);
+        assert_eq!(
+            pg_major_version_from_page_magic(0xD118).unwrap(),
+            PgMajorVersion::PG18
+        );
+        // Every supported major maps to itself, and the magics are distinct.
+        for v in PgMajorVersion::ALL {
+            let magic = dispatch_pgversion!(v, pgv::bindings::XLOG_PAGE_MAGIC as u16);
+            assert_eq!(pg_major_version_from_page_magic(magic).unwrap(), *v);
+        }
+
+        // A segment generated at 18 carries 18's magic, and an 18 decoder
+        // accepts its page header. The segment holds no record, so decoding
+        // stops at the first (empty) record, never at the page magic.
+        let lsn = utils::lsn::Lsn(0x0100_0000);
+        let seg = generate_wal_segment(1, 42, PgMajorVersion::PG18, lsn).unwrap();
+        assert_eq!(u16::from_le_bytes([seg[0], seg[1]]), 0xD118);
+        let mut decoder = waldecoder::WalStreamDecoder::new(lsn, PgMajorVersion::PG18);
+        decoder.feed_bytes(&seg[..XLOG_BLCKSZ]);
+        if let Err(e) = decoder.poll_decode() {
+            let e = format!("{e:?}");
+            assert!(!e.contains("magic"), "an 18 page header was refused: {e}");
+            assert!(e.contains("xl_tot_len 0"), "{e}");
+        }
+    }
+
+    #[test]
+    fn unknown_page_magic_is_error() {
+        // 19's magic (§62 §4.1), a magic between majors, and garbage.
+        for magic in [0xD122u16, 0xD117, 0xD119, 0x0000, 0xFFFF] {
+            let err = pg_major_version_from_page_magic(magic).unwrap_err();
+            assert!(err.to_string().contains("unknown XLOG_PAGE_MAGIC"), "{err}");
+        }
+
+        // A 17 page fed to an 18 decoder, and an 18 page to a 17 decoder, are
+        // errors: never decoded with the other major's layout.
+        let lsn = utils::lsn::Lsn(0x0100_0000);
+        for (written, read) in [
+            (PgMajorVersion::PG17, PgMajorVersion::PG18),
+            (PgMajorVersion::PG18, PgMajorVersion::PG17),
+        ] {
+            let seg = generate_wal_segment(1, 42, written, lsn).unwrap();
+            let mut decoder = waldecoder::WalStreamDecoder::new(lsn, read);
+            decoder.feed_bytes(&seg[..XLOG_BLCKSZ]);
+            let err = decoder.poll_decode().unwrap_err();
+            assert!(err.msg.contains("xlp_magic"), "{}", err.msg);
         }
     }
 }
