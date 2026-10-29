@@ -54,3 +54,5 @@ be63d48593dbe9cc824e9f6d116098866dedfcfa resolve be63d48593.resolve
 # WAL redo uses local buffers across 18's read path (AsyncReadBuffers and friends), after Neon's 18 version (neondatabase/postgres 81d4dd1ea1f1) plus 18.6's other-temp check.
 66c8d0d3a186bbd158c38461b2b71cf8e814a389 resolve 66c8d0d3a1.resolve
 dd3f30f5b5a111f22c465238b2248512acf33e39 resolve dd3f30f5b5.resolve
+# No init-fork flush in WAL redo: 18.6 factored the flush into XLogFlushBufferForRedoIfInit().
+68b5038f27e493bde6ae552fe066f10cbdfe6a14 resolve 68b5038f27.resolve
