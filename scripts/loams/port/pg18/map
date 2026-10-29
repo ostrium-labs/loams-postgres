@@ -34,3 +34,5 @@ feb6c004e3320845b52b282d9bd1c2131beca5b8 resolve feb6c004e3.resolve
 # Neon's custom heap records (RM_NEON_ID, t_cid) on 18's heapam.c, after the D1112 revert; 18 moved
 # heap redo to heapam_xlog.c, so the always-set page LSN in heap_xlog_visible goes there.
 e1b32d7395030055bfe59d6707f8e7aaabeb8915 resolve e1b32d7395.resolve
+# LwLsnCache: its LWLock takes the next free id at 18 (54; 18's AIO worker queue holds 53).
+379ee5fdbc7b973ffba49359c40097152b3f3b35 resolve 379ee5fdbc.resolve

@@ -1,0 +1,42 @@
+diff --git a/src/backend/catalog/storage.c b/src/backend/catalog/storage.c
+--- a/src/backend/catalog/storage.c
++++ b/src/backend/catalog/storage.c
+@@ -187,6 +187,7 @@
+ log_smgrcreate(const RelFileLocator *rlocator, ForkNumber forkNum)
+ {
+ 	xl_smgr_create xlrec;
++	XLogRecPtr lsn;
+ 
+ 	/*
+ 	 * Make an XLOG entry reporting the file creation.
+@@ -195,8 +196,9 @@
+ 	xlrec.forkNum = forkNum;
+ 
+ 	XLogBeginInsert();
+-	XLogRegisterData(&xlrec, sizeof(xlrec));
+-	XLogInsert(RM_SMGR_ID, XLOG_SMGR_CREATE | XLR_SPECIAL_REL_UPDATE);
++	XLogRegisterData((char *) &xlrec, sizeof(xlrec));
++	lsn = XLogInsert(RM_SMGR_ID, XLOG_SMGR_CREATE | XLR_SPECIAL_REL_UPDATE);
++	SetLastWrittenLSNForRelation(lsn, *rlocator, forkNum);
+ }
+ 
+ /*
+diff --git a/src/backend/utils/activity/wait_event_names.txt b/src/backend/utils/activity/wait_event_names.txt
+--- a/src/backend/utils/activity/wait_event_names.txt
++++ b/src/backend/utils/activity/wait_event_names.txt
+@@ -353,6 +353,7 @@
+ InjectionPoint	"Waiting to read or update information related to injection points."
+ SerialControl	"Waiting to read or update shared <filename>pg_serial</filename> state."
+ AioWorkerSubmissionQueue	"Waiting to access AIO worker submission queue."
++LastWrittenLsn	"Waiting to read or update information related to written recent changes."
+ 
+ #
+ # END OF PREDEFINED LWLOCKS (DO NOT CHANGE THIS LINE)
+diff --git a/src/include/storage/lwlocklist.h b/src/include/storage/lwlocklist.h
+--- a/src/include/storage/lwlocklist.h
++++ b/src/include/storage/lwlocklist.h
+@@ -84,3 +84,4 @@
+ PG_LWLOCK(51, InjectionPoint)
+ PG_LWLOCK(52, SerialControl)
+ PG_LWLOCK(53, AioWorkerSubmissionQueue)
++PG_LWLOCK(54, LastWrittenLsn)
