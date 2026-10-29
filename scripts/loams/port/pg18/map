@@ -7,3 +7,11 @@
 # Every other commit is cherry-picked unchanged.
 
 c69205fae5fdb9975e2c12ab64afc743cfb32cba skip Neon's CI for its Postgres repository (.github/workflows/build.yml on REL_17_STABLE_neon); Actions are disabled on ostrium-labs/postgres, and loams-postgres-merge.yml builds and checks the port
+
+# Our own 18 commits (git format-patch mboxes, each with its own Loams-Patch id):
+# D1112 as amended 2026-10-29 (owner: "Yes, revert at 18"): no VM block references in heap
+# records at 18 (NF2 Task 1 F27). The series' custom heap records apply on top of it.
+e1b32d7395030055bfe59d6707f8e7aaabeb8915 before vm-format-d1112.mbox
+# Neon's own 18 fix: no invalidation processing during WAL redo (NF2 Task 1 F26). It needs
+# am_wal_redo_postgres, which the series adds, so it goes last.
+end neon-inplace-inval-guard.mbox
