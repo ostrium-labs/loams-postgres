@@ -229,8 +229,8 @@ port_main() {
       skip)
         echo "skip  $c $subj: ${cnote[$c]}"
         echo "$c skip $subj (${cnote[$c]})" >> "$out/series.txt"; n_skip=$((n_skip + 1)); continue ;;
-      pick) git cherry-pick --no-commit "$c" > /dev/null 2>&1 || status=conflict ;;
-      neon) src=${carg[$c]}; git cherry-pick --no-commit "$src" > /dev/null 2>&1 || status=conflict ;;
+      pick) git cherry-pick --no-commit "$c" > "$out/apply.err" 2>&1 || status=conflict ;;
+      neon) src=${carg[$c]}; git cherry-pick --no-commit "$src" > "$out/apply.err" 2>&1 || status=conflict ;;
       patch) git apply --index --3way "$mapdir/${carg[$c]}" > "$out/apply.err" 2>&1 || status=conflict ;;
       resolve)
         # Cherry-pick as usual (a 3-way merge, so clean files apply as they would
