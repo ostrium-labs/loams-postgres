@@ -1,0 +1,49 @@
+diff --git a/src/backend/replication/logical/snapbuild.c b/src/backend/replication/logical/snapbuild.c
+--- a/src/backend/replication/logical/snapbuild.c
++++ b/src/backend/replication/logical/snapbuild.c
+@@ -132,6 +132,7 @@
+ #include "miscadmin.h"
+ #include "pgstat.h"
+ #include "replication/logical.h"
++#include "replication/message.h"
+ #include "replication/reorderbuffer.h"
+ #include "replication/snapbuild.h"
+ #include "replication/snapbuild_internal.h"
+@@ -1505,6 +1506,7 @@
+ 	int			fd;
+ 	char		tmppath[MAXPGPATH];
+ 	char		path[MAXPGPATH];
++	char		prefix[MAXPGPATH];
+ 	int			ret;
+ 	struct stat stat_buf;
+ 	Size		sz;
+@@ -1650,6 +1652,10 @@
+ 				(errcode_for_file_access(),
+ 				 errmsg("could not open file \"%s\": %m", tmppath)));
+ 
++	/* NEON specific: persist snapshot in storage using logical message */
++	snprintf(prefix, sizeof(prefix), "neon-file:%s", path);
++	LogLogicalMessage(prefix, (char *) ondisk, needed_length, false, true);
++
+ 	errno = 0;
+ 	pgstat_report_wait_start(WAIT_EVENT_SNAPBUILD_WRITE);
+ 	if ((write(fd, ondisk, needed_length)) != needed_length)
+@@ -1974,6 +1980,7 @@
+ 	DIR		   *snap_dir;
+ 	struct dirent *snap_de;
+ 	char		path[MAXPGPATH + sizeof(PG_LOGICAL_SNAPSHOTS_DIR)];
++	char		prefix[MAXPGPATH + 31];
+ 
+ 	/*
+ 	 * We start off with a minimum of the last redo pointer. No new
+@@ -2033,6 +2040,10 @@
+ 		{
+ 			elog(DEBUG1, "removing snapbuild snapshot %s", path);
+ 
++			/* NEON specific: delete file from storage using logical message */
++			snprintf(prefix, sizeof(prefix), "neon-file:%s", path);
++			LogLogicalMessage(prefix, NULL, 0, false, true);
++
+ 			/*
+ 			 * It's not particularly harmful, though strange, if we can't
+ 			 * remove the file here. Don't prevent the checkpoint from

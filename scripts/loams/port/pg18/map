@@ -47,3 +47,4 @@ a4e665a873220a3aa6761d2ad2c2e131827cd55f resolve a4e665a873.resolve
 b4357e322970eebb5d9bb303387fe819aee8e452 resolve b4357e3229.resolve
 # EXPLAIN (PREFETCH, FILECACHE): 18 parses EXPLAIN options in explain_state.c.
 14d522d150cea9193f323b6af27c0b8fdb795d69 resolve 14d522d150.resolve
+be63d48593dbe9cc824e9f6d116098866dedfcfa resolve be63d48593.resolve
