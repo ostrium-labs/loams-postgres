@@ -395,7 +395,15 @@ diff --git a/src/backend/access/heap/heapam.c b/src/backend/access/heap/heapam.c
 diff --git a/src/backend/access/heap/heapam_xlog.c b/src/backend/access/heap/heapam_xlog.c
 --- a/src/backend/access/heap/heapam_xlog.c
 +++ b/src/backend/access/heap/heapam_xlog.c
-@@ -227,7 +227,16 @@
+@@ -19,6 +19,7 @@
+ #include "access/visibilitymap.h"
+ #include "access/xlog.h"
+ #include "access/xlogutils.h"
++#include "miscadmin.h"
+ #include "storage/freespace.h"
+ #include "storage/standby.h"
+ 
+@@ -227,7 +228,16 @@
  
  		PageSetAllVisible(page);
  

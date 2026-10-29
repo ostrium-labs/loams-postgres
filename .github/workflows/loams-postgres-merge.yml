@@ -203,7 +203,9 @@ jobs:
           set -euo pipefail
           ./configure --prefix="$RUNNER_TEMP/pg" --enable-debug --enable-cassert --with-openssl --with-icu \
             --with-libxml --with-libxslt CFLAGS='-O2 -fsigned-char' > "$RUNNER_TEMP/configure.log"
-          make -s -j"$(nproc)" world-bin
+          # -k: report every compile error of the port in one run.
+          make -s -k -j"$(nproc)" world-bin > "$RUNNER_TEMP/build.log" 2>&1 || {
+            grep -E 'error:|undefined reference|Error [0-9]' "$RUNNER_TEMP/build.log" | sort -u | head -n 200; exit 1; }
           make -s install-world-bin > /dev/null
           make check || { find . -name regression.diffs -exec cat {} + | head -n 400; exit 1; }
       - name: installcheck-world
