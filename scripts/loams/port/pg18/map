@@ -48,3 +48,5 @@ b4357e322970eebb5d9bb303387fe819aee8e452 resolve b4357e3229.resolve
 # EXPLAIN (PREFETCH, FILECACHE): 18 parses EXPLAIN options in explain_state.c.
 14d522d150cea9193f323b6af27c0b8fdb795d69 resolve 14d522d150.resolve
 be63d48593dbe9cc824e9f6d116098866dedfcfa resolve be63d48593.resolve
+# Combocid in WAL: the redo half (fix_infomask_from_infobits) lives in heapam_xlog.c at 18.
+0e6c1d4c3f04fa193c9aba07693339885b9e31da resolve 0e6c1d4c3f.resolve
