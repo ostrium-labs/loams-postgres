@@ -58,8 +58,7 @@ COPY --chown=nonroot postgres.mk postgres.mk
 COPY --chown=nonroot scripts/ninstall.sh scripts/ninstall.sh
 
 ENV BUILD_TYPE=release
-# 18 (beta, POSTGRES_CORE_VERSIONS) is built for postgres_ffi's headers; the image
-# gains /usr/local/v18 with NF2 Task 8.
+# 18 (beta) is built with the others; the image gains /usr/local/v18 with NF2 Task 8.
 RUN set -e \
     && mold -run make -j $(nproc) -s postgres
 
