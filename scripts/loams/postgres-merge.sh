@@ -250,6 +250,15 @@ port_main() {
         [ -z "$(git diff --name-only --diff-filter=U)" ] || status=conflict ;;
     esac
     if [ "$status" = conflict ] && [ -s "$out/apply.err" ]; then sed "s/^/  $how: /" "$out/apply.err"; fi
+    if [ "$status" = conflict ] && grep -q 'not our ref\|promisor remote' "$out/apply.err" 2> /dev/null; then
+      # Diagnose an object the clone cannot fetch: which tree names it.
+      local miss t
+      for miss in $(grep -oE '[0-9a-f]{40}' "$out/apply.err" | sort -u); do
+        for t in HEAD "$c^" "$c" "$base_sha"; do
+          git ls-tree -r "$t" 2> /dev/null | grep "$miss" | sed "s/^/  missing $miss in $t: /" || true
+        done
+      done
+    fi
     rm -f "$out/apply.err"
     if [ "$status" = conflict ]; then
       n_conf=$((n_conf + 1))
