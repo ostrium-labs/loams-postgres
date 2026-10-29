@@ -47,7 +47,7 @@ jobs:
           status=0
           make -k -j"$(nproc)" neon-pg-ext-v18 > "$RUNNER_TEMP/pgxn.log" 2>&1 || status=$?
           if [ "$status" -ne 0 ]; then
-            grep -E '(error|warning: implicit declaration|warning: incompatible pointer|undefined reference)' "$RUNNER_TEMP/pgxn.log" | sort -u | head -n 300
-            tail -n 30 "$RUNNER_TEMP/pgxn.log"
+            # Compiler and linker diagnostics only (cargo's own lines carry "--error-format").
+            { grep -E '\.[ch]:[0-9]+:[0-9]+: (error|warning: (implicit|incompatible|passing argument|too (many|few)))|undefined reference|^error(\[E[0-9]+\])?:|make(\[[0-9]+\])?: \*\*\*' "$RUNNER_TEMP/pgxn.log" || true; } | sort -u | head -n 300 || true
           fi
           exit "$status"
