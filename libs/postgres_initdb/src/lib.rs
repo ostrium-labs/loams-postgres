@@ -45,6 +45,55 @@ impl fmt::Display for Error {
     }
 }
 
+/// initdb's arguments for a major.
+///
+/// From 18 on, initdb turns data checksums on by default. Nothing in Loams
+/// Postgres sets page checksums (WAL redo, image layers, basebackup), so a
+/// timeline bootstrapped with them on would fail verification in the compute:
+/// pass `--no-data-checksums` (D1111, Loams-Patch LP-0041). 14 to 17 default
+/// to off and do not know the flag.
+pub fn initdb_args(
+    superuser: &str,
+    locale: &str,
+    pg_version: PgMajorVersion,
+    pgdata: &Utf8Path,
+) -> Vec<String> {
+    let mut args: Vec<String> = [
+        "--pgdata",
+        pgdata.as_str(),
+        "--username",
+        superuser,
+        "--encoding",
+        "utf8",
+        "--locale",
+        locale,
+        "--no-instructions",
+        "--no-sync",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+
+    // Before version 14, only the libc provide was available.
+    if pg_version > PgMajorVersion::PG14 {
+        // Version 17 brought with it a builtin locale provider which only provides
+        // C and C.UTF-8. While being safer for collation purposes since it is
+        // guaranteed to be consistent throughout a major release, it is also more
+        // performant.
+        let locale_provider = if pg_version >= PgMajorVersion::PG17 {
+            "builtin"
+        } else {
+            "libc"
+        };
+        args.extend(["--locale-provider".to_string(), locale_provider.to_string()]);
+    }
+
+    if pg_version >= PgMajorVersion::PG18 {
+        args.push("--no-data-checksums".to_string());
+    }
+    args
+}
+
 pub async fn do_run_initdb(args: RunInitdbArgs<'_>) -> Result<(), Error> {
     let RunInitdbArgs {
         superuser,
@@ -56,12 +105,7 @@ pub async fn do_run_initdb(args: RunInitdbArgs<'_>) -> Result<(), Error> {
     } = args;
     let mut initdb_command = tokio::process::Command::new(initdb_bin_path);
     initdb_command
-        .args(["--pgdata", pgdata.as_ref()])
-        .args(["--username", superuser])
-        .args(["--encoding", "utf8"])
-        .args(["--locale", locale])
-        .arg("--no-instructions")
-        .arg("--no-sync")
+        .args(initdb_args(superuser, locale, pg_version, pgdata))
         .env_clear()
         .env("LD_LIBRARY_PATH", library_search_path)
         .env("DYLD_LIBRARY_PATH", library_search_path)
@@ -78,21 +122,6 @@ pub async fn do_run_initdb(args: RunInitdbArgs<'_>) -> Result<(), Error> {
         .stdout(std::process::Stdio::null())
         // we would be interested in the stderr output, if there was any
         .stderr(std::process::Stdio::piped());
-
-    // Before version 14, only the libc provide was available.
-    if pg_version > PgMajorVersion::PG14 {
-        // Version 17 brought with it a builtin locale provider which only provides
-        // C and C.UTF-8. While being safer for collation purposes since it is
-        // guaranteed to be consistent throughout a major release, it is also more
-        // performant.
-        let locale_provider = if pg_version >= PgMajorVersion::PG17 {
-            "builtin"
-        } else {
-            "libc"
-        };
-
-        initdb_command.args(["--locale-provider", locale_provider]);
-    }
 
     let initdb_proc = initdb_command.spawn().map_err(Error::Spawn)?;
 
@@ -113,4 +142,35 @@ pub async fn do_run_initdb(args: RunInitdbArgs<'_>) -> Result<(), Error> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A timeline bootstrapped at 18 has data checksums off (D1111); 14 to
+    /// 17 are not given a flag they do not know.
+    #[test]
+    fn bootstrap_pg18_checksums_off() {
+        let pgdata = Utf8Path::new("/pgdata");
+        let at = |v| initdb_args("cloud_admin", "C.UTF-8", v, pgdata);
+
+        let args18 = at(PgMajorVersion::PG18);
+        assert!(args18.iter().any(|a| a == "--no-data-checksums"), "{args18:?}");
+        for v in PgMajorVersion::ALL {
+            let args = at(*v);
+            assert!(
+                !args.iter().any(|a| a == "--data-checksums" || a == "-k"),
+                "{v}: {args:?}"
+            );
+            assert_eq!(
+                args.iter().any(|a| a == "--no-data-checksums"),
+                *v >= PgMajorVersion::PG18,
+                "{v}: {args:?}"
+            );
+        }
+        // The rest is unchanged from 17.
+        let args17 = at(PgMajorVersion::PG17);
+        assert_eq!(&args18[..args17.len()], &args17[..]);
+    }
 }

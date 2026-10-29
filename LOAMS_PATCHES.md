@@ -50,6 +50,8 @@ Columns:
 | LP-0032 | Least privilege for spec roles: a role gets what the spec asks for; `privileged` opts into Neon's admin attributes and `neon_superuser` | compute | @dina-kar | 2026-10-12 | loams-only | never (Loams' role model, PG2 R11.9) |
 | LP-0033 | `postgres_ffi`'s build finds the server headers in `include/server` too: Postgres installs them there when the prefix names "postgres", as in a `loams-postgres` checkout | build | @dina-kar | 2026-10-14 | upstreamable | never |
 | LP-0040 | Postgres 18 in the Rust side (NF2 Task 4): `PgMajorVersion::PG18`; `PgVersionId::from_full_pg_version` returns an error outside 14–18 instead of panicking; `postgres_ffi` binds v18 (`XLOG_PAGE_MAGIC` `0xD118`, `pg_constants_v18.rs`, checked against the headers by `bindgen_consts.h`) and maps a page magic to its major, an unknown magic being an error; `wal_decoder` refuses 18 records until LP-0041 | pg18 | @dina-kar | 2026-10-28 | loams-only | never |
+| LP-0041 | Postgres 18 in the decoder, the pageserver and bootstrap (NF2 Task 5): 16-byte `xl_xact_stats_item` at 18, an unknown resource manager is an error from 18, the control file decoded by its major (18 moved the CRC) for imports, `initdb --no-data-checksums` from 18 and imports of a data directory with checksums on refused with `import_checksums_enabled` (D1111); walingest's per-major tables reach 18 | pg18 | @dina-kar | 2026-10-29 | loams-only | never |
+| LP-0042 | Commit and abort parsing skips the two-phase GID before the replication origin, so a COMMIT PREPARED with both reads the right origin LSN (every major; found by the 18 format diff) | storage | @dina-kar | 2026-10-29 | upstreamable | never |
 
 ## Commits without a trailer
 

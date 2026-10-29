@@ -272,6 +272,106 @@ pub fn pg_major_version_from_page_magic(magic: u16) -> anyhow::Result<PgMajorVer
     anyhow::bail!("unknown XLOG_PAGE_MAGIC {magic:#06X}")
 }
 
+/// The major whose `CATALOG_VERSION_NO` this is. An unknown catalog version
+/// is an error (Loams-Patch LP-0041).
+pub fn pg_major_version_from_catalog_version(catversion: u32) -> anyhow::Result<PgMajorVersion> {
+    macro_rules! catversion_of {
+        ($version:ident) => {
+            if catversion == $version::bindings::CATALOG_VERSION_NO {
+                return Ok($version::bindings::MY_PGVERSION);
+            }
+        };
+    }
+    for_all_postgres_versions! { catversion_of }
+    anyhow::bail!("unrecognized catalog version {catversion}")
+}
+
+/// What the pageserver reads from a control file, decoded with the layout of
+/// its major: 18 added `default_char_signedness`, which moves the CRC, so a
+/// control file is never decoded with another major's layout (format diff
+/// F43 to F46, Loams-Patch LP-0041).
+#[derive(Debug, Clone)]
+pub struct ControlFileInfo {
+    pub pg_version: PgMajorVersion,
+    pub system_identifier: u64,
+    pub catalog_version_no: u32,
+    /// `checkPoint`: the location of the last checkpoint record.
+    pub check_point: u64,
+    /// `checkPointCopy.redo`.
+    pub redo: u64,
+    /// `checkPointCopy`, encoded with the major's layout.
+    pub checkpoint_bytes: Bytes,
+    /// `state == DB_SHUTDOWNED`.
+    pub shut_down: bool,
+    /// `data_checksum_version`: 0 when data checksums are off.
+    pub data_checksum_version: u32,
+    /// `default_char_signedness`, from 18 on.
+    pub default_char_signedness: Option<bool>,
+}
+
+/// `catalog_version_no` is at the same offset in every major: after
+/// `system_identifier` (8 bytes) and `pg_control_version` (4 bytes).
+const CONTROLFILE_CATALOG_VERSION_OFFSET: usize = 12;
+
+impl ControlFileInfo {
+    /// Decode a control file with `pg_version`'s layout, checking its CRC and
+    /// that its catalog version is that major's.
+    pub fn decode(buf: &[u8], pg_version: PgMajorVersion) -> anyhow::Result<ControlFileInfo> {
+        let info = dispatch_pgversion!(
+            pg_version,
+            {
+                let cf = pgv::ControlFileData::decode(buf)?;
+                ControlFileInfo {
+                    pg_version,
+                    system_identifier: cf.system_identifier,
+                    catalog_version_no: cf.catalog_version_no,
+                    check_point: cf.checkPoint,
+                    redo: cf.checkPointCopy.redo,
+                    checkpoint_bytes: cf.checkPointCopy.encode()?,
+                    shut_down: cf.state == pgv::bindings::DBState_DB_SHUTDOWNED,
+                    data_checksum_version: cf.data_checksum_version,
+                    default_char_signedness: pgv::bindings::default_char_signedness(&cf),
+                }
+            },
+            anyhow::bail!("unknown Postgres version {pg_version}")
+        );
+        let found = pg_major_version_from_catalog_version(info.catalog_version_no)?;
+        anyhow::ensure!(
+            found == pg_version,
+            "control file is from Postgres {}, expected {}",
+            found.major_version_num(),
+            pg_version.major_version_num()
+        );
+        Ok(info)
+    }
+
+    /// Decode a control file of any supported major, which its catalog
+    /// version names.
+    pub fn decode_any(buf: &[u8]) -> anyhow::Result<ControlFileInfo> {
+        let off = CONTROLFILE_CATALOG_VERSION_OFFSET;
+        anyhow::ensure!(buf.len() >= off + 4, "control file is too short");
+        let catversion = u32::from_le_bytes(buf[off..off + 4].try_into().unwrap());
+        Self::decode(buf, pg_major_version_from_catalog_version(catversion)?)
+    }
+
+    /// A data directory with data checksums on cannot be imported: nothing in
+    /// Loams Postgres keeps page checksums, so the compute would fail to
+    /// verify the pages it reads back (D1111). The importer converts such a
+    /// directory first (`pg_checksums --disable`, offline). The error starts
+    /// with the reason `import_checksums_enabled`.
+    pub fn check_importable(&self) -> anyhow::Result<()> {
+        if self.data_checksum_version != 0 {
+            anyhow::bail!(
+                "import_checksums_enabled: the data directory has data checksums on \
+                 (data_checksum_version {}); disable them with `pg_checksums --disable` \
+                 on the stopped cluster before importing",
+                self.data_checksum_version
+            );
+        }
+        Ok(())
+    }
+}
+
 pub fn bkpimage_is_compressed(bimg_info: u8, version: PgMajorVersion) -> bool {
     dispatch_pgversion!(version, pgv::bindings::bkpimg_is_compressed(bimg_info))
 }
@@ -509,6 +609,7 @@ mod tests {
         assert_eq!(c::XLOG_PAGE_MAGIC, 0xD118);
         assert_eq!(h::PG_CONTROL_VERSION, 1800);
         assert_eq!(h::CATALOG_VERSION_NO, 202506291);
+        assert_eq!(c::CATALOG_VERSION_NO, h::CATALOG_VERSION_NO);
         assert_eq!(c::PG_MAJORVERSION_NUM, 18);
 
         // 18's control file gained default_char_signedness (44fe30fdab).
@@ -529,6 +630,7 @@ mod tests {
         assert_eq!(c::XLOG_CHECKPOINT_REDO as u32, h::XLOG_CHECKPOINT_REDO);
         assert_eq!(c::XLOG_PAGE_MAGIC, 0xD116);
         assert_eq!(h::PG_CONTROL_VERSION, 1700);
+        assert_eq!(c::CATALOG_VERSION_NO, h::CATALOG_VERSION_NO);
         assert_eq!(std::mem::size_of::<h::xl_xact_stats_item>(), 12);
     }
 
@@ -574,6 +676,90 @@ mod tests {
             decoder.feed_bytes(&seg[..XLOG_BLCKSZ]);
             let err = decoder.poll_decode().unwrap_err();
             assert!(err.msg.contains("xlp_magic"), "{}", err.msg);
+        }
+    }
+
+    fn control_file(pg_version: PgMajorVersion, checksums: u32, signed: bool) -> Bytes {
+        dispatch_pgversion!(pg_version, {
+            let mut cf = pgv::ControlFileData::default();
+            cf.system_identifier = 0x7000_0000_0000_0042;
+            cf.catalog_version_no = pgv::bindings::CATALOG_VERSION_NO;
+            cf.data_checksum_version = checksums;
+            cf.checkPoint = 0x0100_0028;
+            cf.checkPointCopy.redo = 0x0100_0028;
+            cf.state = pgv::bindings::DBState_DB_SHUTDOWNED;
+            set_signedness(&mut cf, signed);
+            cf.encode()
+        })
+    }
+
+    trait SetSignedness {
+        fn set(&mut self, signed: bool);
+    }
+    macro_rules! no_signedness {
+        ($($v:ident),*) => {$(
+            impl SetSignedness for $v::bindings::ControlFileData {
+                fn set(&mut self, _signed: bool) {}
+            }
+        )*};
+    }
+    no_signedness!(v14, v15, v16, v17);
+    impl SetSignedness for v18::bindings::ControlFileData {
+        fn set(&mut self, signed: bool) {
+            self.default_char_signedness = signed;
+        }
+    }
+    fn set_signedness(cf: &mut impl SetSignedness, signed: bool) {
+        cf.set(signed)
+    }
+
+    /// 18's control file is decoded with 18's layout: default_char_signedness
+    /// is read and kept through basebackup's pg_control, and a control file is
+    /// never decoded with another major's layout (format diff F43 to F46).
+    #[test]
+    fn control_file_pg18_layout() {
+        for signed in [true, false] {
+            let buf = control_file(PgMajorVersion::PG18, 0, signed);
+            let info = ControlFileInfo::decode(&buf, PgMajorVersion::PG18).unwrap();
+            assert_eq!(info.default_char_signedness, Some(signed));
+            assert_eq!(info.catalog_version_no, 202506291);
+            assert!(info.shut_down);
+            assert_eq!(ControlFileInfo::decode_any(&buf).unwrap().pg_version, PgMajorVersion::PG18);
+
+            // Wrong layouts are refused.
+            assert!(ControlFileInfo::decode(&buf, PgMajorVersion::PG17).is_err());
+            assert!(v14::ControlFileData::decode(&buf).is_err(), "v14 layout: CRC moved");
+
+            // basebackup's pg_control keeps the field.
+            let (out, sysid, _) = generate_pg_control(
+                &buf,
+                &info.checkpoint_bytes,
+                Lsn(0x0100_0028),
+                PgMajorVersion::PG18,
+            )
+            .unwrap();
+            assert_eq!(sysid, 0x7000_0000_0000_0042);
+            assert_eq!(v18::ControlFileData::decode(&out).unwrap().default_char_signedness, signed);
+        }
+        for v in PgMajorVersion::ALL {
+            let buf = control_file(*v, 0, true);
+            let info = ControlFileInfo::decode_any(&buf).unwrap();
+            assert_eq!(info.pg_version, *v);
+            assert_eq!(info.default_char_signedness.is_some(), *v >= PgMajorVersion::PG18);
+        }
+        assert!(pg_major_version_from_catalog_version(202610061).is_err());
+    }
+
+    /// A data directory with data checksums on is refused for import, with
+    /// the reason import_checksums_enabled (D1111).
+    #[test]
+    fn import_refuses_checksums_enabled() {
+        for v in PgMajorVersion::ALL {
+            let on = ControlFileInfo::decode(&control_file(*v, 1, true), *v).unwrap();
+            let err = on.check_importable().unwrap_err().to_string();
+            assert!(err.starts_with("import_checksums_enabled"), "{v}: {err}");
+            let off = ControlFileInfo::decode(&control_file(*v, 0, true), *v).unwrap();
+            off.check_importable().unwrap();
         }
     }
 }
