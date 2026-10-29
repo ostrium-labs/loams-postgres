@@ -38,3 +38,6 @@ e1b32d7395030055bfe59d6707f8e7aaabeb8915 resolve e1b32d7395.resolve
 379ee5fdbc7b973ffba49359c40097152b3f3b35 resolve 379ee5fdbc.resolve
 # WalRedo and startup: the wal-redo buffer guard in 18's local victim loop; neon_test_evict after 18's GUCs.
 a4e665a873220a3aa6761d2ad2c2e131827cd55f resolve a4e665a873.resolve
+# Prefetch in scans: at 18 vacuum (heap, btree, gist, spgist) and bitmap heap scans read through the read
+# stream, which prefetches through the smgr, so only index-scan prefetch remains; Neon's 18 version is that.
+19d879fb62292b07ab9ec756585ccbfe54e6ec9e neon a6f2a3666167e2b0ff35b42e0abbde366f2a6364 18 keeps index-scan prefetch only; the read stream covers vacuum and bitmap heap scans
