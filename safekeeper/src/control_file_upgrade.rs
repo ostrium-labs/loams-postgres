@@ -451,7 +451,7 @@ pub fn upgrade_control_file(buf: &[u8], version: u32) -> Result<TimelinePersiste
 
         // set pg_version to the default v14
         info!("setting pg_version to 140005");
-        oldstate.server.pg_version = PgVersionId::from_full_pg_version(140005);
+        oldstate.server.pg_version = PgVersionId::from_full_pg_version(140005)?;
 
         return Ok(oldstate);
     } else if version == 7 {

@@ -46,6 +46,7 @@ impl ParseCallbacks for PostgresFfiCallbacks {
 fn main() -> anyhow::Result<()> {
     // Tell cargo to invalidate the built crate whenever the wrapper changes
     println!("cargo:rerun-if-changed=bindgen_deps.h");
+    println!("cargo:rerun-if-changed=bindgen_consts.h");
 
     // Finding the location of C headers for the Postgres server:
     // - if POSTGRES_INSTALL_DIR is set look into it, otherwise look into `<project_root>/pg_install`
@@ -57,7 +58,7 @@ fn main() -> anyhow::Result<()> {
         PathBuf::from("pg_install")
     };
 
-    for pg_version in &["v14", "v15", "v16", "v17"] {
+    for pg_version in &["v14", "v15", "v16", "v17", "v18"] {
         let mut pg_install_dir_versioned = pg_install_dir.join(pg_version);
         if pg_install_dir_versioned.is_relative() {
             let cwd = env::current_dir().context("Failed to get current_dir")?;
@@ -155,6 +156,37 @@ fn main() -> anyhow::Result<()> {
         bindings
             .write_to_file(out_path.join(filename))
             .context("Couldn't write bindings")?;
+
+        // The constants that src/pg_constants_<version>.rs copies by hand, read
+        // from the same headers, so that a test can compare the two
+        // (pg_constants_v18_match_headers, Loams-Patch LP-0040).
+        let header_consts = bindgen::Builder::default()
+            .header("bindgen_consts.h")
+            .parse_callbacks(Box::new(PostgresFfiCallbacks))
+            .allowlist_var("XACT_XINFO_HAS_DROPPED_STATS")
+            .allowlist_var("XLOG_DBASE_CREATE_FILE_COPY")
+            .allowlist_var("XLOG_DBASE_CREATE_WAL_LOG")
+            .allowlist_var("XLOG_DBASE_DROP")
+            .allowlist_var("BKPIMAGE_APPLY")
+            .allowlist_var("BKPIMAGE_COMPRESS_PGLZ")
+            .allowlist_var("BKPIMAGE_COMPRESS_LZ4")
+            .allowlist_var("BKPIMAGE_COMPRESS_ZSTD")
+            .allowlist_var("XLOG_HEAP2_PRUNE_ON_ACCESS")
+            .allowlist_var("XLOG_HEAP2_PRUNE_VACUUM_SCAN")
+            .allowlist_var("XLOG_HEAP2_PRUNE_VACUUM_CLEANUP")
+            .allowlist_var("XLOG_OVERWRITE_CONTRECORD")
+            .allowlist_var("XLOG_CHECKPOINT_REDO")
+            .allowlist_var("PG_CONTROL_VERSION")
+            .allowlist_var("CATALOG_VERSION_NO")
+            .allowlist_type("xl_xact_stats_item")
+            .allowlist_type("xl_heap_inplace")
+            .allowlist_type("SharedInvalidationMessage")
+            .clang_arg(format!("-I{inc_server_path}"))
+            .generate()
+            .context("Unable to generate header constants")?;
+        header_consts
+            .write_to_file(out_path.join(format!("header_consts_{pg_version}.rs")))
+            .context("Couldn't write header constants")?;
     }
 
     Ok(())

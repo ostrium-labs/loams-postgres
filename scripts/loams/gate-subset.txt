@@ -27,6 +27,8 @@ test_runner/regress/test_local_file_cache.py::test_local_file_cache_unlink
 # at every major (D1118)
 test_runner/regress/test_vm_bits.py::test_vm_bit_clear
 test_runner/regress/test_loams_vm_clear.py::test_loams_vm_clear_without_vm_block_reference
+# data checksums off at 18, read back after restarts and on a branch (NF2 Task 5, D1111; skips below 18)
+test_runner/regress/test_loams_pg18_checksums.py::test_pgbench_checksums_survive_restart_and_branch_pg18
 # multixacts through the pageserver (16.15 and 17.11 set the next multixid's offset, LP-0016)
 test_runner/regress/test_multixact.py::test_multixact
 # the compute at 18: the read stream through the neon smgr (D1110, LP-0044) and slot
