@@ -195,7 +195,7 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q --no-install-recommends bison flex libreadline-dev zlib1g-dev libssl-dev \
-            libicu-dev libxml2-dev libxslt1-dev pkg-config
+            libicu-dev libxml2-dev libxslt1-dev pkg-config gdb
       - name: Build and make check
         if: inputs.mode == 'port' && steps.port.outputs.complete == 'true' && (inputs.check || inputs.promote)
         working-directory: ${{ runner.temp }}/postgres-port-work
@@ -207,8 +207,16 @@ jobs:
           make -s -k -j"$(nproc)" world-bin > "$RUNNER_TEMP/build.log" 2>&1 || {
             grep -E 'error:|undefined reference|Error [0-9]' "$RUNNER_TEMP/build.log" | sort -u | head -n 200; exit 1; }
           make -s install-world-bin > /dev/null
+          # A crash leaves a core; its backtrace goes to the log.
+          sudo sysctl -q -w kernel.core_pattern="$RUNNER_TEMP/core.%e.%p"
+          ulimit -c unlimited
           make check || {
             find . -name regression.diffs -exec cat {} + | head -n 400
+            for c in "$RUNNER_TEMP"/core.*; do
+              [ -f "$c" ] || continue
+              echo "== backtrace of $c"
+              gdb -q -batch -ex 'bt 40' "$PWD/tmp_install$RUNNER_TEMP/pg/bin/postgres" "$c" 2>&1 | grep -v '^\[New LWP' | head -n 80
+            done
             # The server's own log names an assertion or a crash.
             find . -name postmaster.log -exec sh -c 'echo "== $1"; tail -n 80 "$1"' _ {} \;
             exit 1; }
