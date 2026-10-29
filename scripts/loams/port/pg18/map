@@ -23,4 +23,11 @@ end neon-inplace-inval-guard.mbox
 # Our smgr hook API (not Neon's 18 "register new SMgrs" API, which our pgxn/neon does not use) on 18's
 # smgr: f_smgr gains 18's smgr_maxcombine, smgr_startreadv, smgr_fd and 4-argument smgr_truncate;
 # FlushLocalBuffer replaces the victim write in GetLocalVictimBuffer.
-bd09a752f4c2556ba2722510e7196136cc266c43 patch bd09a752f4.patch
+bd09a752f4c2556ba2722510e7196136cc266c43 resolve bd09a752f4.resolve
+# Remote extension download: 18 resolves the script directory from the control file's basedir.
+700e77ebe3fd3e6f0fca1eeb7ec09330d84c985f resolve 700e77ebe3.resolve
+# --sysid: 18 uses long-option ids 20 and 21, so --sysid is 22; the checksum version is local at 18.
+98745b7f50831224851305d2d378994342b754ee resolve 98745b7f50.resolve
+# Backpressure and lag tracker: 18's prev*Ptr statics move into ProcessStandbyReply; the interrupt
+# callback runs after 18's slot-sync handling.
+feb6c004e3320845b52b282d9bd1c2131beca5b8 resolve feb6c004e3.resolve

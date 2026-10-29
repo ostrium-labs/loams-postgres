@@ -43,6 +43,11 @@
 #    The map (FILE) decides a commit instead, one line each:
 #      <sha> patch <file> [note]   apply <file> (relative to the map; a `git diff`
 #                                  against the port at that point) instead
+#      <sha> resolve <file> [note]  cherry-pick it, then put the files <file> names
+#                                  back to the port's version and apply <file> (a
+#                                  diff from that version) to them; a line
+#                                  `#keep-deleted <path>` accepts the port's deletion
+#                                  of a file the commit modifies
 #      <sha> neon <neon-sha> [note]  cherry-pick Neon's own version of the change
 #                                  from REL_<MAJOR>_STABLE_neon, with
 #                                  `(cherry picked from neondatabase/postgres <sha>)`
@@ -123,10 +128,10 @@ port_main() {
         bef[$msha]+="$a2 "; continue
       fi
       case "$a1" in
-        patch) [ -n "$a2" ] && [ -f "$mapdir/$a2" ] || { echo "map: no patch file '$a2' for $msha"; exit 2; } ;;
+        patch|resolve) [ -n "$a2" ] && [ -f "$mapdir/$a2" ] || { echo "map: no $a1 file '$a2' for $msha"; exit 2; } ;;
         neon) [[ $a2 =~ ^[0-9a-f]{40}$ ]] || { echo "map: neon needs a full sha for $msha, not '$a2'"; exit 2; } ;;
         skip) [ -n "$a2" ] || { echo "map: skip needs a reason for $msha"; exit 2; }; a3="$a2${a3:+ $a3}"; a2="" ;;
-        *) echo "map: unknown action '$a1' for $msha (patch, neon, skip or before)"; exit 2 ;;
+        *) echo "map: unknown action '$a1' for $msha (patch, resolve, neon, skip or before)"; exit 2 ;;
       esac
       act[$msha]=$a1 arg[$msha]=$a2 note[$msha]=$a3
     done < "$map"
@@ -226,8 +231,26 @@ port_main() {
         echo "$c skip $subj (${cnote[$c]})" >> "$out/series.txt"; n_skip=$((n_skip + 1)); continue ;;
       pick) git cherry-pick --no-commit "$c" > /dev/null 2>&1 || status=conflict ;;
       neon) src=${carg[$c]}; git cherry-pick --no-commit "$src" > /dev/null 2>&1 || status=conflict ;;
-      patch) git apply --index --3way "$mapdir/${carg[$c]}" > /dev/null 2>&1 || status=conflict ;;
+      patch) git apply --index --3way "$mapdir/${carg[$c]}" > "$out/apply.err" 2>&1 || status=conflict ;;
+      resolve)
+        # Cherry-pick as usual (a 3-way merge, so clean files apply as they would
+        # unmapped); the files the resolution names go back to the port's version
+        # and the resolution, a diff from that version, is applied to them.
+        git cherry-pick --no-commit "$c" > /dev/null 2>&1 || true
+        local rf
+        while IFS= read -r rf; do
+          git checkout -q HEAD -- "$rf" 2> /dev/null || git rm -q --cached -f -- "$rf" > /dev/null 2>&1 || true
+        done < <(sed -nE 's#^diff --git a/(.*) b/.*$#\1#p' "$mapdir/${carg[$c]}")
+        while IFS= read -r rf; do
+          git rm -q --cached -f -- "$rf" > /dev/null 2>&1 || true; rm -f -- "$rf"
+        done < <(sed -nE 's/^#keep-deleted (.+)$/\1/p' "$mapdir/${carg[$c]}")
+        if grep -q '^diff --git ' "$mapdir/${carg[$c]}"; then
+          git apply --index "$mapdir/${carg[$c]}" > "$out/apply.err" 2>&1 || status=conflict
+        fi
+        [ -z "$(git diff --name-only --diff-filter=U)" ] || status=conflict ;;
     esac
+    if [ "$status" = conflict ] && [ -s "$out/apply.err" ]; then sed "s/^/  $how: /" "$out/apply.err"; fi
+    rm -f "$out/apply.err"
     if [ "$status" = conflict ]; then
       n_conf=$((n_conf + 1))
       local d=$out
@@ -263,7 +286,7 @@ port_main() {
       printf '%s\n\n' "$body"
       [ "$how" = neon ] && echo "(cherry picked from neondatabase/postgres $src)"
       echo "(ported from $c)"
-      [ "$how" = patch ] && echo "Resolved for $major by ${mapprefix}${carg[$c]}${cnote[$c]:+: ${cnote[$c]}}"
+      [ "$how" = patch ] || [ "$how" = resolve ] && echo "Resolved for $major by ${mapprefix}${carg[$c]}${cnote[$c]:+: ${cnote[$c]}}"
       [ "$how" = neon ] && [ -n "${cnote[$c]}" ] && echo "Note: ${cnote[$c]}"
       echo
       grep -q '^Loams-Patch: ' <<< "$body" || echo "Loams-Patch: $pid"
@@ -272,7 +295,7 @@ port_main() {
     GIT_AUTHOR_NAME=$(git log -1 --format=%an "$src") GIT_AUTHOR_EMAIL=$(git log -1 --format=%ae "$src") \
       GIT_AUTHOR_DATE=$(git log -1 --format=%aI "$src") git commit -q --no-verify --cleanup=verbatim -F "$tmpmsg"
     rm -f .git/CHERRY_PICK_HEAD
-    case "$how" in pick) n_pick=$((n_pick + 1)) ;; neon) n_neon=$((n_neon + 1)) ;; patch) n_patch=$((n_patch + 1)) ;; esac
+    case "$how" in pick) n_pick=$((n_pick + 1)) ;; neon) n_neon=$((n_neon + 1)) ;; patch|resolve) n_patch=$((n_patch + 1)) ;; esac
     echo "$c $how $subj" >> "$out/series.txt"
     echo "$how  $c $subj"
   done

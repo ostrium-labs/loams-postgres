@@ -16,6 +16,8 @@
 #                                     goes to loams/port-pg18 and loams/pg18 stays at the base
 #   port_map_patch_resumes            a map entry `patch` resolves it; the next run resumes from
 #                                     loams/port-pg18 without re-applying, and --promote moves loams/pg18
+#   port_map_resolve_after_pick       `resolve` cherry-picks, then applies a diff from the port's
+#                                     version to the conflicted files; #keep-deleted takes a deletion
 #   port_map_neon_and_skip            `neon <sha>` takes Neon's 18 commit, `skip` leaves one out
 #   port_map_extra_commits            `before <file>` and `end <file>` add our own commits (mbox) at
 #                                     their place, once: a resumed run does not apply them again
@@ -183,6 +185,24 @@ if port --map "$tmp/map/pg18/map" --push --promote; then
     ok port_map_patch_resumes
   else fail port_map_patch_resumes "$(subjects loams/port-pg18) $(cat "$tmp/log")"; fi
 else fail port_map_patch_resumes "$(cat "$tmp/log")"; fi
+
+# resolve: the cherry-pick's clean files stay; the conflicted ones get the resolution.
+port_setup conflict
+c1=$(src "c1:")
+rm -rf "$tmp/res"; git init -q "$tmp/res"
+( cd "$tmp/res"; printf 'a\nREADV\nc\n' > smgr.c; git add -A; git commit -q -m ours
+  printf 'a\nREADV\nNEON\nc\n' > smgr.c; git add -A
+  { echo "#keep-deleted zz_gone.c"; git diff --cached; } > "$tmp/map/pg18/$c1.resolve" )
+printf '%s resolve %s.resolve smgr hook beside 18 readv\n' "$c1" "$c1" > "$tmp/map/pg18/map"
+if port --map "$tmp/map/pg18/map" --push; then
+  msg1=$(git -C "$tmp/fork" log -1 --format=%B --grep='^c1:' loams/port-pg18)
+  if [ "$(subjects loams/port-pg18)" = "c0: neon feature|c1: neon smgr hook|side|c2: governance|" ] &&
+     [ "$(git -C "$tmp/fork" show loams/port-pg18:smgr.c | tr '\n' ' ')" = "a READV NEON c " ] &&
+     ! git -C "$tmp/fork" cat-file -e loams/port-pg18:zz_gone.c 2> /dev/null &&
+     [[ $msg1 == *"(ported from $c1)"* && $msg1 == *"Resolved for 18 by"* ]]; then
+    ok port_map_resolve_after_pick
+  else fail port_map_resolve_after_pick "$(subjects loams/port-pg18) $(cat "$tmp/log")"; fi
+else fail port_map_resolve_after_pick "$(cat "$tmp/log")"; fi
 
 port_setup conflict
 c1=$(src "c1:") c0=$(src "c0:")

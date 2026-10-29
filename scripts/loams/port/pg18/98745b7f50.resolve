@@ -1,0 +1,60 @@
+diff --git a/src/backend/bootstrap/bootstrap.c b/src/backend/bootstrap/bootstrap.c
+--- a/src/backend/bootstrap/bootstrap.c
++++ b/src/backend/bootstrap/bootstrap.c
+@@ -42,6 +42,8 @@
+ #include "utils/rel.h"
+ #include "utils/relmapper.h"
+ 
++extern uint64 predefined_sysidentifier;
++
+ 
+ static void CheckerModeMain(void);
+ static void bootstrap_signals(void);
+@@ -218,13 +220,23 @@
+ 	argv++;
+ 	argc--;
+ 
+-	while ((flag = getopt(argc, argv, "B:c:d:D:Fkr:X:-:")) != -1)
++	while ((flag = getopt(argc, argv, "B:c:d:D:Fkr:s:X:-:")) != -1)
+ 	{
+ 		switch (flag)
+ 		{
+ 			case 'B':
+ 				SetConfigOption("shared_buffers", optarg, PGC_POSTMASTER, PGC_S_ARGV);
+ 				break;
++			case 's':
++			{
++				char* endptr;
++#ifdef HAVE_STRTOULL
++				predefined_sysidentifier = strtoull(optarg, &endptr, 10);
++#else
++				predefined_sysidentifier = strtoul(optarg, &endptr, 10);
++#endif
++				break;
++			}
+ 			case '-':
+ 
+ 				/*
+diff --git a/src/bin/initdb/initdb.c b/src/bin/initdb/initdb.c
+--- a/src/bin/initdb/initdb.c
++++ b/src/bin/initdb/initdb.c
+@@ -3198,6 +3198,7 @@
+ 		{"sync-method", required_argument, NULL, 19},
+ 		{"no-data-checksums", no_argument, NULL, 20},
+ 		{"no-sync-data-files", no_argument, NULL, 21},
++		{"sysid", required_argument, NULL, 22},
+ 		{NULL, 0, NULL, 0}
+ 	};
+ 
+@@ -3395,6 +3396,11 @@
+ 			case 21:
+ 				sync_data_files = false;
+ 				break;
++			case 22:
++				extra_options = psprintf("%s -s %s",
++										 extra_options,
++										 optarg);
++				break;
+ 			default:
+ 				/* getopt_long already emitted a complaint */
+ 				pg_log_error_hint("Try \"%s --help\" for more information.", progname);
