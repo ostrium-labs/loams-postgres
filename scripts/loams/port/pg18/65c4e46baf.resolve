@@ -1,0 +1,23 @@
+diff --git a/src/backend/storage/aio/read_stream.c b/src/backend/storage/aio/read_stream.c
+--- a/src/backend/storage/aio/read_stream.c
++++ b/src/backend/storage/aio/read_stream.c
+@@ -568,6 +568,8 @@
+ 	uint32		max_possible_buffer_limit;
+ 	Oid			tablespace_id;
+ 
++	smgr = RelationGetSmgr(rel);
++
+ 	/*
+ 	 * Reject attempts to read non-local temporary relations; we would be
+ 	 * likely to get wrong data since we have no visibility into the owning
+@@ -681,7 +683,9 @@
+ 	stream->batch_mode = flags & READ_STREAM_USE_BATCHING;
+ 
+ #if !ASSUME_KERNEL_READAHEAD
+-	flags &= ~READ_STREAM_SEQUENTIAL;
++	/* NEON: temporary relations are read through md.c, which keeps it */
++	if (persistence != RELPERSISTENCE_TEMP)
++		flags &= ~READ_STREAM_SEQUENTIAL;
+ #endif
+ 
+ #ifdef USE_PREFETCH
