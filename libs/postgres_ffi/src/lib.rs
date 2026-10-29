@@ -647,13 +647,19 @@ mod tests {
             assert_eq!(pg_major_version_from_page_magic(magic).unwrap(), *v);
         }
 
-        // A segment generated at 18 carries 18's magic and decodes at 18.
+        // A segment generated at 18 carries 18's magic, and an 18 decoder
+        // accepts its page header. The segment holds no record, so decoding
+        // stops at the first (empty) record, never at the page magic.
         let lsn = utils::lsn::Lsn(0x0100_0000);
         let seg = generate_wal_segment(1, 42, PgMajorVersion::PG18, lsn).unwrap();
         assert_eq!(u16::from_le_bytes([seg[0], seg[1]]), 0xD118);
         let mut decoder = waldecoder::WalStreamDecoder::new(lsn, PgMajorVersion::PG18);
         decoder.feed_bytes(&seg[..XLOG_BLCKSZ]);
-        decoder.poll_decode().unwrap();
+        if let Err(e) = decoder.poll_decode() {
+            let e = format!("{e:?}");
+            assert!(!e.contains("magic"), "an 18 page header was refused: {e}");
+            assert!(e.contains("xl_tot_len 0"), "{e}");
+        }
     }
 
     #[test]
