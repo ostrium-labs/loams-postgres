@@ -4,8 +4,18 @@ ROOT_PROJECT_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 # managers.
 POSTGRES_INSTALL_DIR ?= $(ROOT_PROJECT_DIR)/pg_install
 
-# Supported PostgreSQL versions
+# Supported PostgreSQL versions: the majors the storage image carries under
+# /usr/local/v<N> and pgxn/neon is built for, and the compute images this
+# commit can build (scripts/loams/compute-matrix.py reads this line). v18 joins
+# when vendor/postgres-v18 and pgxn/neon at 18 land (NF2 Tasks 2 and 6); until
+# then a build may opt in with `make POSTGRES_VERSIONS="v18 ..."` (the storage
+# Dockerfile's POSTGRES_VERSIONS build argument).
 POSTGRES_VERSIONS = v17 v16 v15 v14
+
+# Print POSTGRES_VERSIONS (the storage Dockerfile and loams-build-storage.yml read it).
+.PHONY: print-postgres-versions
+print-postgres-versions:
+	@echo $(POSTGRES_VERSIONS)
 
 # CARGO_BUILD_FLAGS: Extra flags to pass to `cargo build`. `--locked`
 # and `--features testing` are popular examples.

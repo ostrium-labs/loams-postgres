@@ -48,17 +48,25 @@ ARG BASE_IMAGE_SHA=${BASE_IMAGE_SHA/debian:bullseye-slim/debian@$BULLSEYE_SLIM_S
 FROM $BUILD_TOOLS AS pg-build
 WORKDIR /home/nonroot
 
-COPY --chown=nonroot vendor/postgres-v14 vendor/postgres-v14
-COPY --chown=nonroot vendor/postgres-v15 vendor/postgres-v15
-COPY --chown=nonroot vendor/postgres-v16 vendor/postgres-v16
-COPY --chown=nonroot vendor/postgres-v17 vendor/postgres-v17
+# The majors are the Makefile's POSTGRES_VERSIONS unless the build argument
+# POSTGRES_VERSIONS names others (NF2 Task 8, LP-0055: "v18 v17 v16 v15 v14"
+# builds /usr/local/v18 before 18 joins the Makefile's list). Every vendor tree
+# in the context is copied (.dockerignore lets vendor/postgres-*/ through); a
+# listed major without its tree fails here, not halfway through the build.
+ARG POSTGRES_VERSIONS=""
+COPY --chown=nonroot vendor/ vendor/
 COPY --chown=nonroot Makefile Makefile
 COPY --chown=nonroot postgres.mk postgres.mk
 COPY --chown=nonroot scripts/ninstall.sh scripts/ninstall.sh
 
 ENV BUILD_TYPE=release
 RUN set -e \
-    && mold -run make -j $(nproc) -s postgres
+    && versions="${POSTGRES_VERSIONS:-$(make -s print-postgres-versions)}" \
+    && for v in $versions; do \
+        [ -f "vendor/postgres-$v/configure" ] || { echo "POSTGRES_VERSIONS has $v, but vendor/postgres-$v is not in the build context"; exit 1; }; \
+    done \
+    && echo "Postgres majors: $versions" \
+    && mold -run make -j $(nproc) -s POSTGRES_VERSIONS="$versions" postgres
 
 # 2. Prepare cargo-chef recipe
 FROM $BUILD_TOOLS AS plan
@@ -75,6 +83,7 @@ FROM $BUILD_TOOLS AS build
 WORKDIR /home/nonroot
 ARG GIT_VERSION=local
 ARG BUILD_TAG
+ARG POSTGRES_VERSIONS=""
 ARG ADDITIONAL_RUSTFLAGS=""
 ARG IO_ALIGNMENT=512
 ENV CARGO_FEATURES="default"
@@ -109,7 +118,13 @@ RUN set -e \
       --bin neon_local \
       --bin storage_scrubber \
       --locked --release \
-    && mold -run make -j $(nproc) -s neon-pg-ext
+    && versions="${POSTGRES_VERSIONS:-$(make -s print-postgres-versions)}" \
+    && mold -run make -j $(nproc) -s POSTGRES_VERSIONS="$versions" neon-pg-ext \
+    # The majors the image carries, one /usr/local/v<N> each, and their list
+    # (/usr/share/doc/loams-postgres/POSTGRES_VERSIONS; storage_image_has_majors).
+    && mkdir -p pg_dist \
+    && for v in $versions; do cp -a "pg_install/$v" pg_dist/; done \
+    && echo $versions > POSTGRES_VERSIONS
 
 # The third-party licence file of the Rust crates (cargo-about 0.9.2, checked by
 # sha256; about.toml, about.hbs; LP-0010). The crate sources are already in
@@ -180,19 +195,17 @@ COPY --from=build --chown=neon:neon /home/nonroot/target/release/proxy          
 COPY --from=build --chown=neon:neon /home/nonroot/target/release/endpoint_storage    /usr/local/bin
 COPY --from=build --chown=neon:neon /home/nonroot/target/release/neon_local          /usr/local/bin
 COPY --from=build --chown=neon:neon /home/nonroot/target/release/storage_scrubber    /usr/local/bin
-COPY --from=build /home/nonroot/pg_install/v14 /usr/local/v14/
-COPY --from=build /home/nonroot/pg_install/v15 /usr/local/v15/
-COPY --from=build /home/nonroot/pg_install/v16 /usr/local/v16/
-COPY --from=build /home/nonroot/pg_install/v17 /usr/local/v17/
+# /usr/local/v<N> for every built major (WAL redo and initdb; v18 with NF2 Task 8).
+COPY --from=build /home/nonroot/pg_dist/ /usr/local/
 
-# Licences and the patch list (LP-0010).
+# Licences, the patch list (LP-0010) and the list of Postgres majors.
 COPY --from=build /home/nonroot/LICENSE /home/nonroot/NOTICE /home/nonroot/LOAMS_PATCHES.md \
-     /home/nonroot/THIRD_PARTY_LICENSES.html /usr/share/doc/loams-postgres/
+     /home/nonroot/THIRD_PARTY_LICENSES.html /home/nonroot/POSTGRES_VERSIONS /usr/share/doc/loams-postgres/
 
 # Deprecated: Old deployment scripts use this tarball which contains all the Postgres binaries.
 # That's obsolete, since all the same files are also present under /usr/local/v*. But to keep the
 # old scripts working for now, create the tarball.
-RUN tar -C /usr/local -cvzf /data/postgres_install.tar.gz v14 v15 v16 v17
+RUN tar -C /usr/local -cvzf /data/postgres_install.tar.gz $(cat /usr/share/doc/loams-postgres/POSTGRES_VERSIONS)
 
 # By default, pageserver uses `.neon/` working directory in WORKDIR, so create one and fill it with the dummy config.
 # Now, when `docker run ... pageserver` is run, it can start without errors, yet will have some default dummy values.
