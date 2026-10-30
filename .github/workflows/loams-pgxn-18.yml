@@ -1,0 +1,55 @@
+# The neon extensions built against Postgres 18 (NF2 Tasks 3 and 6; LP-0043).
+# Postgres 18 is beta and core-only in the Makefile (POSTGRES_CORE_VERSIONS)
+# until pgxn/neon builds against it; this job is that build, on every pull
+# request that touches it, and lists every compile error in one run (make -k).
+# Never scheduled (owner rule: no nightlies on GitHub CI).
+name: loams-pgxn-18
+
+on:
+  pull_request:
+    paths:
+      - "pgxn/**"
+      - "vendor/postgres-v18"
+      - "Makefile"
+      - "postgres.mk"
+      - ".github/workflows/loams-pgxn-18.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: loams-pgxn-18-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Postgres 18 sources
+        run: git submodule update --init --depth 1 vendor/postgres-v18
+      - name: Tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends \
+            bison flex libreadline-dev zlib1g-dev libssl-dev libicu-dev libseccomp-dev \
+            libcurl4-openssl-dev pkg-config protobuf-compiler libprotobuf-dev libclang-dev
+      - name: Postgres 18
+        run: make -s -j"$(nproc)" postgres-v18 > "$RUNNER_TEMP/pg.log" 2>&1 || { grep -E 'error:|Error [0-9]' "$RUNNER_TEMP/pg.log" | head -50; exit 1; }
+      - name: The neon extensions at 18
+        run: |
+          set -euo pipefail
+          status=0
+          make -k -j"$(nproc)" neon-pg-ext-v18 > "$RUNNER_TEMP/pgxn.log" 2>&1 || status=$?
+          # Warnings about prototypes and pointer types are signature mismatches with 18's APIs.
+          { grep -E '\.[ch]:[0-9]+:[0-9]+: warning: (implicit|incompatible|passing argument|initialization of)' "$RUNNER_TEMP/pgxn.log" || true; } | sort -u | head -n 100 || true
+          if [ "$status" -ne 0 ]; then
+            # Compiler and linker diagnostics only (cargo's own lines carry "--error-format").
+            { grep -E '\.[ch]:[0-9]+:[0-9]+: (error|warning: (implicit|incompatible|passing argument|too (many|few)))|undefined reference|^error(\[E[0-9]+\])?:|make(\[[0-9]+\])?: \*\*\*' "$RUNNER_TEMP/pgxn.log" || true; } | sort -u | head -n 300 || true
+          fi
+          exit "$status"

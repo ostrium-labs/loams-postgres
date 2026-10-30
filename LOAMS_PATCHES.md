@@ -58,6 +58,8 @@ Columns:
 | LP-0042 | Commit and abort parsing skips the two-phase GID before the replication origin, so a COMMIT PREPARED with both reads the right origin LSN (every major; found by the 18 format diff) | storage | @dina-kar | 2026-10-29 | upstreamable | never |
 | LP-0050 | The gate per major (NF2 Task 7, D1118): G2's legs from Loams' pin file (`gate.py legs`: supported, maintenance, beta, and a newer built major as `unpinned`), beta legs advisory unless `own-majors` names them, the `g2-upgrade` skeleton (Path 1, body in NF2 Task 13), G3 decided by the `loams-gate / g3` status; no schedule | ci, pg18 | @dina-kar | 2026-10-28 | loams-only | never |
 | LP-0034 | The Postgres 18 format diff: `docs/loams/pg18-format-diff.md` (17.11 → 18.6, every item classified per §51 §8.3) and its check, `scripts/loams/format-diff-check.py` in `loams-hygiene.yml` (NF2 Task 1) | pg18 | @dina-kar | 2026-10-28 | loams-only | never |
+| LP-0043 | Postgres 18 in `pgxn/neon`, `neon_rmgr`, `neon_walredo`, `neon_utils` and `neon_test_utils` (NF2 Task 6): version conditionals for 18's APIs; `loams-pgxn-18.yml` builds them against `vendor/postgres-v18` on every pull request that touches them | pg18 | @dina-kar | 2026-10-29 | loams-only | never |
+| LP-0044 | Postgres 18: AIO reads for storage managers without file descriptors (NF2 Task 3, D1110). In `loams/pg18`: an smgr that leaves `smgr_startreadv` unset reads synchronously through `smgr_readv`, and the AIO handle completes at once with md's callbacks (`pgaio_io_stage_completed()`); `smgr_maxcombine` and `smgr_fd` may be unset too. Here: `vendor/postgres-v18` and `docs/loams/pg18-aio.md` | pg18 | @dina-kar | 2026-10-29 | loams-only | a native AIO target for the communicator (NF3) |
 
 ## Commits without a trailer
 

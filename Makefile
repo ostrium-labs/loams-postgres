@@ -5,10 +5,11 @@ ROOT_PROJECT_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 POSTGRES_INSTALL_DIR ?= $(ROOT_PROJECT_DIR)/pg_install
 
 # Supported PostgreSQL versions: Postgres and the pgxn extensions build for these.
-POSTGRES_VERSIONS = v17 v16 v15 v14
-# Postgres builds for these too, but not yet the pgxn extensions or images:
-# 18 is beta (NF2 Task 14), and pgxn/neon builds against it with NF2 Task 6.
-POSTGRES_CORE_VERSIONS = v18
+# 18 is beta until NF2 Task 14; its extensions build with the others (NF2 Task 6).
+POSTGRES_VERSIONS = v18 v17 v16 v15 v14
+# Postgres builds for these too, but not yet the pgxn extensions or images (a new
+# major before its pgxn/neon port; 19 with NF2 Task 18).
+POSTGRES_CORE_VERSIONS =
 
 # CARGO_BUILD_FLAGS: Extra flags to pass to `cargo build`. `--locked`
 # and `--features testing` are popular examples.

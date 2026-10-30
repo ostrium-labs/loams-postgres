@@ -47,6 +47,39 @@ pub fn line_in_file(path: &Path, line: &str) -> Result<bool> {
 /// The logical decoding output plugins a compute trusts (LP-0016, NF1 Task 17).
 const LOAMS_OUTPUT_PLUGIN_LIBRARIES: &str = "pgoutput, test_decoding, wal2json";
 
+/// The `io_method` line for a compute's postgresql.conf (NF2 Task 3, D1110,
+/// Loams-Patch LP-0043).
+///
+/// From Postgres 18 on, compute_ctl sets `io_method = 'sync'`: the neon
+/// storage manager reads pages from the pageserver and has no file
+/// descriptors for an asynchronous I/O method to use. The setting is
+/// compute_ctl's alone: a spec that sets `io_method`, in its settings or in
+/// its raw postgresql.conf, is refused, at every major (before 18 there is no
+/// such setting). `pgversion` is compute_ctl's `v<major>` string.
+pub fn io_method_conf(pgversion: &str, spec: &ComputeSpec) -> Result<Option<&'static str>> {
+    let in_settings = spec.cluster.settings.find_ref("io_method").is_some();
+    let in_conf = spec.cluster.postgresql_conf.as_deref().is_some_and(|conf| {
+        conf.lines().any(|line| {
+            line.trim_start()
+                .split(|c: char| c == '=' || c.is_whitespace())
+                .next()
+                == Some("io_method")
+        })
+    });
+    if in_settings || in_conf {
+        anyhow::bail!(
+            "io_method is set by compute_ctl (sync, D1110); a compute spec cannot set it"
+        );
+    }
+    let major: u32 = pgversion
+        .trim_start_matches('v')
+        .split('.')
+        .next()
+        .and_then(|m| m.parse().ok())
+        .unwrap_or(0);
+    Ok((major >= 18).then_some("io_method = 'sync'"))
+}
+
 /// Create or completely rewrite configuration file specified by `path`
 #[allow(clippy::too_many_arguments)]
 pub fn write_postgres_conf(
@@ -59,6 +92,9 @@ pub fn write_postgres_conf(
     databricks_settings: Option<&DatabricksSettings>,
     lakebase_mode: bool,
 ) -> Result<()> {
+    // Refused before anything is written (D1110).
+    let io_method = io_method_conf(&params.pgversion, spec)?;
+
     let path = pgdata_path.join("postgresql.conf");
     // File::create() destroys the file content if it exists.
     let mut file = File::create(path)?;
@@ -263,6 +299,15 @@ pub fn write_postgres_conf(
         writeln!(file, "# Managed by compute_ctl: end")?;
     }
 
+    // After the spec's settings, so that nothing in the spec can replace it.
+    if let Some(line) = io_method {
+        writeln!(
+            file,
+            "# synchronous I/O: the neon storage manager has no file descriptors (D1110)"
+        )?;
+        writeln!(file, "{line}")?;
+    }
+
     // If base audit logging is enabled, configure it.
     // In this setup, the audit log will be written to the standard postgresql log.
     //
@@ -409,4 +454,52 @@ where
     file.set_len(0)?;
 
     res
+}
+
+#[cfg(test)]
+mod io_method_tests {
+    use super::*;
+    use compute_api::spec::GenericOption;
+
+    fn spec() -> ComputeSpec {
+        let file = File::open("../libs/compute_api/tests/cluster_spec.json").unwrap();
+        serde_json::from_reader(file).unwrap()
+    }
+
+    /// From 18 on compute_ctl writes io_method = 'sync'; before 18 nothing.
+    #[test]
+    fn io_method_sync_from_18() {
+        let spec = spec();
+        assert_eq!(io_method_conf("v18", &spec).unwrap(), Some("io_method = 'sync'"));
+        assert_eq!(io_method_conf("v19", &spec).unwrap(), Some("io_method = 'sync'"));
+        assert_eq!(io_method_conf("v17", &spec).unwrap(), None);
+        assert_eq!(io_method_conf("v14", &spec).unwrap(), None);
+    }
+
+    /// A spec that sets io_method, in its settings or its raw conf, is refused.
+    #[test]
+    fn io_method_locked() {
+        let mut spec = spec();
+        spec.cluster
+            .settings
+            .get_or_insert_with(Vec::new)
+            .push(GenericOption {
+                name: "io_method".to_string(),
+                value: Some("worker".to_string()),
+                vartype: "enum".to_string(),
+            });
+        for v in ["v17", "v18"] {
+            let err = io_method_conf(v, &spec).unwrap_err().to_string();
+            assert!(err.contains("a compute spec cannot set it"), "{v}: {err}");
+        }
+
+        let mut spec = self::spec();
+        spec.cluster.postgresql_conf = Some("shared_buffers = 128MB\n  io_method='io_uring'\n".to_string());
+        assert!(io_method_conf("v18", &spec).is_err());
+
+        // A setting that only starts with the same letters is not io_method.
+        let mut spec = self::spec();
+        spec.cluster.postgresql_conf = Some("io_method_extra = 1\n".to_string());
+        assert_eq!(io_method_conf("v18", &spec).unwrap(), Some("io_method = 'sync'"));
+    }
 }

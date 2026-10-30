@@ -31,9 +31,11 @@ test_runner/regress/test_loams_vm_clear.py::test_loams_vm_clear_without_vm_block
 test_runner/regress/test_loams_pg18_checksums.py::test_pgbench_checksums_survive_restart_and_branch_pg18
 # multixacts through the pageserver (16.15 and 17.11 set the next multixid's offset, LP-0016)
 test_runner/regress/test_multixact.py::test_multixact
-# NF2 Tasks 3 and 6 add their tests here once they exist (subset-check refuses
-# a name that does not): read_stream_seqscan_pg18 and
-# slot_invalidation_survives_restart_pg<N>; Task 21 adds multixact_wraparound_pg19.
+# the compute at 18: the read stream through the neon smgr (D1110, LP-0044) and slot
+# invalidations kept by the pageserver (NF2 Tasks 3 and 6; skip below 18).
+# Task 21 adds multixact_wraparound_pg19.
+test_runner/regress/test_loams_pg18_compute.py::test_read_stream_seqscan_pg18
+test_runner/regress/test_loams_pg18_compute.py::test_slot_invalidation_survives_restart_pg18
 # the walproposer against safekeepers
 test_runner/regress/test_wal_acceptor.py::test_restarts
 test_runner/regress/test_wal_acceptor.py::test_restart_endpoint
