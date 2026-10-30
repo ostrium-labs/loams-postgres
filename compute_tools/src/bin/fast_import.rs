@@ -621,8 +621,16 @@ pub(crate) async fn main() -> anyhow::Result<()> {
             .load()
             .await;
 
-        // Create clients from the config with enhanced retry settings
-        let s3_client = aws_sdk_s3::Client::new(&config);
+        // Create clients from the config with enhanced retry settings. An
+        // S3-compatible store at AWS_ENDPOINT_URL (Loams' RustFS) is addressed
+        // path-style: its buckets have no DNS names (LP-0057).
+        let custom_endpoint = std::env::var_os("AWS_ENDPOINT_URL").is_some()
+            || std::env::var_os("AWS_ENDPOINT_URL_S3").is_some();
+        let s3_client = aws_sdk_s3::Client::from_conf(
+            aws_sdk_s3::config::Builder::from(&config)
+                .force_path_style(custom_endpoint)
+                .build(),
+        );
         let kms = aws_sdk_kms::Client::new(&config);
         (Some(s3_client), Some(kms))
     } else {
@@ -630,26 +638,39 @@ pub(crate) async fn main() -> anyhow::Result<()> {
     };
 
     // Capture everything from spec assignment onwards to handle errors
+    // A source connection string given on the command line needs no spec.json
+    // (Loams' major upgrade, LP-0057): only the prefix's pgdata and status are used.
+    let connstring_given = match &args.command {
+        Command::Pgdata {
+            source_connection_string,
+            ..
+        }
+        | Command::DumpRestore {
+            source_connection_string,
+            ..
+        } => source_connection_string.is_some(),
+    };
     let res = async {
-        let spec: Option<Spec> = if let Some(s3_prefix) = &args.s3_prefix {
-            let spec_key = s3_prefix.append("/spec.json");
-            let object = s3_client
-                .as_ref()
-                .unwrap()
-                .get_object()
-                .bucket(&spec_key.bucket)
-                .key(spec_key.key)
-                .send()
-                .await
-                .context("get spec from s3")?
-                .body
-                .collect()
-                .await
-                .context("download spec body")?;
-            serde_json::from_slice(&object.into_bytes()).context("parse spec as json")?
-        } else {
-            None
-        };
+        let spec: Option<Spec> =
+            if let Some(s3_prefix) = args.s3_prefix.as_ref().filter(|_| !connstring_given) {
+                let spec_key = s3_prefix.append("/spec.json");
+                let object = s3_client
+                    .as_ref()
+                    .unwrap()
+                    .get_object()
+                    .bucket(&spec_key.bucket)
+                    .key(spec_key.key)
+                    .send()
+                    .await
+                    .context("get spec from s3")?
+                    .body
+                    .collect()
+                    .await
+                    .context("download spec body")?;
+                serde_json::from_slice(&object.into_bytes()).context("parse spec as json")?
+            } else {
+                None
+            };
 
         match tokio::fs::create_dir(&args.working_directory).await {
             Ok(()) => {}

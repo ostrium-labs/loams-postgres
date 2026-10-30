@@ -1229,3 +1229,41 @@ def test_fast_import_restore_to_connstring_error_to_s3_kms_error(
         "done": False,
         "error": "decrypt source connection string",
     }, f"got status: {job_status}"
+
+
+def test_loams_fast_import_connstring_to_s3_without_spec(
+    vanilla_pg: VanillaPostgres,
+    port_distributor: PortDistributor,
+    fast_import: FastImport,
+    mock_s3_server: MockS3Server,
+    mock_s3_client: S3Client,
+):
+    """
+    Loams' major upgrade (NF2 Task 13, LP-0057) runs fast_import pgdata with the
+    source connection string given directly and an S3 prefix on its own bucket
+    (RustFS): no spec.json, no KMS. The data directory and the statuses still land
+    under the prefix, and the S3 client uses path-style requests at AWS_ENDPOINT_URL.
+    """
+    vanilla_pg.start()
+    vanilla_pg.safe_psql("CREATE TABLE foo (a int); INSERT INTO foo SELECT generate_series(1, 10);")
+
+    bucket = "loams-upgrade"
+    key_prefix = "upgrade/prj-test/br-test-pg18"
+    mock_s3_client.create_bucket(Bucket=bucket)
+
+    fast_import.set_aws_creds(mock_s3_server)
+    fast_import.run_pgdata(
+        pg_port=port_distributor.get_port(),
+        s3prefix=f"s3://{bucket}/{key_prefix}",
+        source_connection_string=vanilla_pg.connstr(),
+    )
+
+    def status(name: str):
+        obj = mock_s3_client.get_object(Bucket=bucket, Key=f"{key_prefix}/status/{name}")
+        return json.loads(obj["Body"].read().decode("utf-8"))
+
+    assert status("pgdata") == {"done": True}
+    assert status("fast_import") == {"command": "pgdata", "done": True}
+    listed = mock_s3_client.list_objects_v2(Bucket=bucket, Prefix=f"{key_prefix}/pgdata/")
+    keys = {o["Key"] for o in listed.get("Contents", [])}
+    assert f"{key_prefix}/pgdata/global/pg_control" in keys, sorted(keys)[:20]
