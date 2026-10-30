@@ -14,6 +14,10 @@
 # A pull request builds both architectures and pushes nothing. Edge builds are
 # unsigned and never pinned by Loams.
 #
+# The image carries /usr/local/v<N> for each major in the Makefile's
+# POSTGRES_VERSIONS, 18 (beta) included (NF2 Task 8). The smoke checks each
+# major's postgres --version (storage_image_has_majors; storage_image_has_v18).
+#
 # Needs, besides Actions being enabled on this repository: read access for this
 # repository to the package ostrium-labs/neon-archive/compute-node-v17 (the
 # smoke's compute until our own compute-v17 exists; set vars.SMOKE_COMPUTE_IMAGE
@@ -47,6 +51,7 @@ on:
       - scripts/loams/smoke/**
       - scripts/loams/audit-image.sh
       - scripts/loams/audit_image.py
+      - scripts/loams/storage-majors.py
       - .github/workflows/loams-build-storage.yml
   # The same paths as a pull request: a push that cannot change the image
   # builds nothing (each run is hours of runners).
@@ -76,6 +81,7 @@ on:
       - scripts/loams/smoke/**
       - scripts/loams/audit-image.sh
       - scripts/loams/audit_image.py
+      - scripts/loams/storage-majors.py
       - .github/workflows/loams-build-storage.yml
   workflow_dispatch:
   workflow_call:
@@ -158,7 +164,10 @@ jobs:
         id: tag
         env:
           INPUT_TAG: ${{ inputs.build-tag }}
-        run: echo "build-tag=${INPUT_TAG:-${GITHUB_SHA:0:12}}" >> "$GITHUB_OUTPUT"
+        run: |
+          set -euo pipefail
+          echo "build-tag=${INPUT_TAG:-${GITHUB_SHA:0:12}}" >> "$GITHUB_OUTPUT"
+          echo "storage ${{ matrix.arch }}: Postgres $(make -s print-postgres-versions)" >> "$GITHUB_STEP_SUMMARY"
       - name: Build${{ env.PUBLISH == 'true' && ' and push by digest' || '' }}
         id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -268,6 +277,10 @@ jobs:
           docker run --rm --entrypoint ls "$IMAGE@$DIGEST" /usr/share/doc/loams-postgres/LICENSE \
             /usr/share/doc/loams-postgres/NOTICE /usr/share/doc/loams-postgres/LOAMS_PATCHES.md \
             /usr/share/doc/loams-postgres/THIRD_PARTY_LICENSES.html
+      - name: Every Postgres major's binaries (storage_image_has_majors; storage_image_has_v18 at 18)
+        run: |
+          set -euo pipefail
+          python3 -I scripts/loams/storage-majors.py "$IMAGE@$DIGEST" "$(make -s print-postgres-versions)" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: SELECT 1 through a compute (smoke_select_1)
         env:
           EXPECT_COMMIT: ${{ github.sha }}

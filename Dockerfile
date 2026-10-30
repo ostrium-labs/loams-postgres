@@ -58,7 +58,8 @@ COPY --chown=nonroot postgres.mk postgres.mk
 COPY --chown=nonroot scripts/ninstall.sh scripts/ninstall.sh
 
 ENV BUILD_TYPE=release
-# 18 (beta) is built with the others; the image gains /usr/local/v18 with NF2 Task 8.
+# Every major in the Makefile's POSTGRES_VERSIONS, 18 (beta) included; the final
+# stage carries each one under /usr/local/v<N> (NF2 Task 8, LP-0055).
 RUN set -e \
     && mold -run make -j $(nproc) -s postgres
 
@@ -111,7 +112,13 @@ RUN set -e \
       --bin neon_local \
       --bin storage_scrubber \
       --locked --release \
-    && mold -run make -j $(nproc) -s neon-pg-ext
+    && mold -run make -j $(nproc) -s neon-pg-ext \
+    && versions="$(make -s print-postgres-versions)" \
+    # The majors the image carries, one /usr/local/v<N> each, and their list
+    # (/usr/share/doc/loams-postgres/POSTGRES_VERSIONS; storage_image_has_majors).
+    && mkdir -p pg_dist \
+    && for v in $versions; do cp -a "pg_install/$v" pg_dist/; done \
+    && echo $versions > POSTGRES_VERSIONS
 
 # The third-party licence file of the Rust crates (cargo-about 0.9.2, checked by
 # sha256; about.toml, about.hbs; LP-0010). The crate sources are already in
@@ -182,19 +189,17 @@ COPY --from=build --chown=neon:neon /home/nonroot/target/release/proxy          
 COPY --from=build --chown=neon:neon /home/nonroot/target/release/endpoint_storage    /usr/local/bin
 COPY --from=build --chown=neon:neon /home/nonroot/target/release/neon_local          /usr/local/bin
 COPY --from=build --chown=neon:neon /home/nonroot/target/release/storage_scrubber    /usr/local/bin
-COPY --from=build /home/nonroot/pg_install/v14 /usr/local/v14/
-COPY --from=build /home/nonroot/pg_install/v15 /usr/local/v15/
-COPY --from=build /home/nonroot/pg_install/v16 /usr/local/v16/
-COPY --from=build /home/nonroot/pg_install/v17 /usr/local/v17/
+# /usr/local/v<N> for every built major (WAL redo and initdb; v18 with NF2 Task 8).
+COPY --from=build /home/nonroot/pg_dist/ /usr/local/
 
-# Licences and the patch list (LP-0010).
+# Licences, the patch list (LP-0010) and the list of Postgres majors.
 COPY --from=build /home/nonroot/LICENSE /home/nonroot/NOTICE /home/nonroot/LOAMS_PATCHES.md \
-     /home/nonroot/THIRD_PARTY_LICENSES.html /usr/share/doc/loams-postgres/
+     /home/nonroot/THIRD_PARTY_LICENSES.html /home/nonroot/POSTGRES_VERSIONS /usr/share/doc/loams-postgres/
 
 # Deprecated: Old deployment scripts use this tarball which contains all the Postgres binaries.
 # That's obsolete, since all the same files are also present under /usr/local/v*. But to keep the
 # old scripts working for now, create the tarball.
-RUN tar -C /usr/local -cvzf /data/postgres_install.tar.gz v14 v15 v16 v17
+RUN tar -C /usr/local -cvzf /data/postgres_install.tar.gz $(cat /usr/share/doc/loams-postgres/POSTGRES_VERSIONS)
 
 # By default, pageserver uses `.neon/` working directory in WORKDIR, so create one and fill it with the dummy config.
 # Now, when `docker run ... pageserver` is run, it can start without errors, yet will have some default dummy values.
