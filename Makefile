@@ -4,15 +4,15 @@ ROOT_PROJECT_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 # managers.
 POSTGRES_INSTALL_DIR ?= $(ROOT_PROJECT_DIR)/pg_install
 
-# Supported PostgreSQL versions: the majors the storage image carries under
-# /usr/local/v<N> and pgxn/neon is built for, and the compute images this
-# commit can build (scripts/loams/compute-matrix.py reads this line). v18 joins
-# when vendor/postgres-v18 and pgxn/neon at 18 land (NF2 Tasks 2 and 6); until
-# then a build may opt in with `make POSTGRES_VERSIONS="v18 ..."` (the storage
-# Dockerfile's POSTGRES_VERSIONS build argument).
-POSTGRES_VERSIONS = v17 v16 v15 v14
+# Supported PostgreSQL versions: Postgres and the pgxn extensions build for these.
+# 18 is beta until NF2 Task 14; its extensions build with the others (NF2 Task 6).
+POSTGRES_VERSIONS = v18 v17 v16 v15 v14
+# Postgres builds for these too, but not yet the pgxn extensions or images (a new
+# major before its pgxn/neon port; 19 with NF2 Task 18).
+POSTGRES_CORE_VERSIONS =
 
-# Print POSTGRES_VERSIONS (the storage Dockerfile and loams-build-storage.yml read it).
+# Print POSTGRES_VERSIONS: the majors the storage image carries under /usr/local/v<N>
+# (the storage Dockerfile and loams-build-storage.yml read it; NF2 Task 8).
 .PHONY: print-postgres-versions
 print-postgres-versions:
 	@echo $(POSTGRES_VERSIONS)
@@ -249,7 +249,7 @@ lint-openapi-spec: build-tools/node_modules
 # installed, by setting the PG_INSTALL_CACHED variable, skip it.
 ifdef PG_INSTALL_CACHED
 postgres-install: skip-install
-$(foreach pg_version,$(POSTGRES_VERSIONS),postgres-install-$(pg_version)): skip-install
+$(foreach pg_version,$(POSTGRES_VERSIONS) $(POSTGRES_CORE_VERSIONS),postgres-install-$(pg_version)): skip-install
 postgres-headers-install:
 	+@echo "Skipping installation of PostgreSQL headers because PG_INSTALL_CACHED is set"
 skip-install:

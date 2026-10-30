@@ -1,0 +1,71 @@
+diff --git a/src/bin/pg_dump/pg_dumpall.c b/src/bin/pg_dump/pg_dumpall.c
+--- a/src/bin/pg_dump/pg_dumpall.c
++++ b/src/bin/pg_dump/pg_dumpall.c
+@@ -103,6 +103,7 @@
+ static int	no_statistics = 0;
+ static int	no_subscriptions = 0;
+ static int	no_toast_compression = 0;
++static int	no_event_triggers = 0;
+ static int	no_unlogged_table_data = 0;
+ static int	no_role_passwords = 0;
+ static int	with_statistics = 0;
+@@ -177,6 +178,7 @@
+ 		{"no-security-labels", no_argument, &no_security_labels, 1},
+ 		{"no-subscriptions", no_argument, &no_subscriptions, 1},
+ 		{"no-statistics", no_argument, &no_statistics, 1},
++		{"no-event-triggers", no_argument, &no_event_triggers, 1},
+ 		{"no-sync", no_argument, NULL, 4},
+ 		{"no-toast-compression", no_argument, &no_toast_compression, 1},
+ 		{"no-unlogged-table-data", no_argument, &no_unlogged_table_data, 1},
+@@ -482,6 +484,8 @@
+ 		appendPQExpBufferStr(pgdumpopts, " --no-statistics");
+ 	if (no_subscriptions)
+ 		appendPQExpBufferStr(pgdumpopts, " --no-subscriptions");
++	if (no_event_triggers)
++		appendPQExpBufferStr(pgdumpopts, " --no-event-triggers");
+ 	if (no_toast_compression)
+ 		appendPQExpBufferStr(pgdumpopts, " --no-toast-compression");
+ 	if (no_unlogged_table_data)
+@@ -736,6 +740,7 @@
+ 	printf(_("  --no-security-labels         do not dump security label assignments\n"));
+ 	printf(_("  --no-statistics              do not dump statistics\n"));
+ 	printf(_("  --no-subscriptions           do not dump subscriptions\n"));
++	printf(_("  --no-event-triggers          do not dump event triggers\n"));
+ 	printf(_("  --no-sync                    do not wait for changes to be written safely to disk\n"));
+ 	printf(_("  --no-table-access-method     do not dump table access methods\n"));
+ 	printf(_("  --no-tablespaces             do not dump tablespace assignments\n"));
+diff --git a/src/bin/pg_dump/pg_restore.c b/src/bin/pg_dump/pg_restore.c
+--- a/src/bin/pg_dump/pg_restore.c
++++ b/src/bin/pg_dump/pg_restore.c
+@@ -81,6 +81,7 @@
+ 	static int	no_security_labels = 0;
+ 	static int	no_statistics = 0;
+ 	static int	no_subscriptions = 0;
++	static int	no_event_triggers = 0;
+ 	static int	strict_names = 0;
+ 	static int	statistics_only = 0;
+ 	static int	with_statistics = 0;
+@@ -140,6 +141,7 @@
+ 		{"no-statistics", no_argument, &no_statistics, 1},
+ 		{"statistics", no_argument, &with_statistics, 1},
+ 		{"statistics-only", no_argument, &statistics_only, 1},
++		{"no-event-triggers", no_argument, &no_event_triggers, 1},
+ 		{"filter", required_argument, NULL, 4},
+ 		{"restrict-key", required_argument, NULL, 6},
+ 
+@@ -455,6 +457,7 @@
+ 	opts->no_publications = no_publications;
+ 	opts->no_security_labels = no_security_labels;
+ 	opts->no_subscriptions = no_subscriptions;
++	opts->no_event_triggers = no_event_triggers;
+ 
+ 	if (if_exists && !opts->dropSchema)
+ 		pg_fatal("option %s requires option %s",
+@@ -579,6 +582,7 @@
+ 	printf(_("  --no-security-labels         do not restore security labels\n"));
+ 	printf(_("  --no-statistics              do not restore statistics\n"));
+ 	printf(_("  --no-subscriptions           do not restore subscriptions\n"));
++	printf(_("  --no-event-triggers          do not restore event triggers\n"));
+ 	printf(_("  --no-table-access-method     do not restore table access methods\n"));
+ 	printf(_("  --no-tablespaces             do not restore tablespace assignments\n"));
+ 	printf(_("  --restrict-key=RESTRICT_KEY  use provided string as psql \\restrict key\n"));

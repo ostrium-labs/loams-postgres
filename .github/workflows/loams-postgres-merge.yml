@@ -1,5 +1,6 @@
 # Merge an upstream Postgres minor into ostrium-labs/postgres (LP-0016, NF1
-# Task 17; design §51 §6.3, D821): scripts/loams/postgres-merge.sh in a
+# Task 17; design §51 §6.3, D821), or port our series onto a new major
+# (LP-0035, NF2 Task 2; §62 §3, D1109): scripts/loams/postgres-merge.sh in a
 # blobless clone inside the job, so nothing is cloned on a workstation and
 # every later minor is the same dispatch. NF1 Task 18's nightly tracking
 # calls it too.
@@ -12,26 +13,61 @@
 # then moves to it in a pull request here, and the gate runs on that. promote
 # fast-forwards loams/pg<major> to it (after the gate is green).
 # A conflict fails the job and uploads the conflicted files and diff.
+#
+# Port mode (once per major):
+#
+#   gh workflow run loams-postgres-merge.yml --repo ostrium-labs/loams-postgres \
+#     -f mode=port -f major=18 -f tag=REL_18_6 -f since=REL_17_11 -f patch_id=LP-0035 \
+#     [-f keep_going=true | -f push=true [-f promote=true]] [-f check=true]
+#
+# cherry-picks `since..loams/pg<major-1>` onto the tag, with the resolutions in
+# scripts/loams/port/pg<major>/map. The first conflict stops it and uploads
+# what a resolution needs (docs/loams/postgres-branches.md). push creates
+# loams/pg<major> at the tag if missing and pushes the progress to
+# loams/port-pg<major>. When the whole series applies, check builds it and runs
+# `make check` and `make installcheck-world`; promote (which implies check)
+# then fast-forwards loams/pg<major> to it.
 # Pushing needs the organisation secret LOAMS_BOT_TOKEN.
 name: loams-postgres-merge
 
 on:
   workflow_dispatch:
     inputs:
+      mode:
+        description: "merge (an upstream minor) or port (the series onto a new major)"
+        type: choice
+        options: [merge, port]
+        default: merge
       major:
         description: "Postgres major (16, 17, 18)"
         type: string
         required: true
       tag:
-        description: "Upstream tag, REL_<major>_<minor>"
+        description: "Upstream tag, REL_<major>_<minor> (port: the new major's base)"
         type: string
         required: true
       push:
-        description: "Push the merge to loams/minor-pg<major>-<tag>"
+        description: "merge: push to loams/minor-pg<major>-<tag>; port: push progress to loams/port-pg<major>"
         type: boolean
         default: false
       promote:
-        description: "Also fast-forward loams/pg<major> to it"
+        description: "Also fast-forward loams/pg<major> to it (port: only when complete and checked)"
+        type: boolean
+        default: false
+      since:
+        description: "port: the previous major's tag the series starts after (REL_<major-1>_<minor>)"
+        type: string
+        default: ""
+      patch_id:
+        description: "port: the Loams-Patch id of the ported commits (LP-<nnnn>)"
+        type: string
+        default: ""
+      keep_going:
+        description: "port: survey every conflict instead of stopping at the first (no push)"
+        type: boolean
+        default: false
+      check:
+        description: "port: when the series applies, build it and run make check and installcheck-world"
         type: boolean
         default: false
   workflow_call:
@@ -65,7 +101,7 @@ concurrency:
 jobs:
   merge:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: ${{ inputs.mode == 'port' && 180 || 30 }}
     outputs:
       sha: ${{ steps.merge.outputs.sha }}
     steps:
@@ -73,6 +109,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Merge ${{ inputs.tag }} into loams/pg${{ inputs.major }}
+        if: inputs.mode != 'port'
         id: merge
         env:
           MAJOR: ${{ inputs.major }}
@@ -95,10 +132,119 @@ jobs:
           { echo "### $TAG into loams/pg${MAJOR}"; echo; echo '```'; cat "$RUNNER_TEMP/merge.log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
       - name: The conflicts
-        if: failure()
+        if: failure() && inputs.mode != 'port'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: postgres-merge-${{ inputs.major }}-${{ inputs.tag }}
           path: ${{ runner.temp }}/postgres-merge/
           retention-days: 14
           if-no-files-found: ignore
+
+      - name: Port loams/pg${{ inputs.major }} onto ${{ inputs.tag }}
+        if: inputs.mode == 'port'
+        id: port
+        env:
+          MAJOR: ${{ inputs.major }}
+          TAG: ${{ inputs.tag }}
+          SINCE: ${{ inputs.since }}
+          PATCH_ID: ${{ inputs.patch_id }}
+          PUSH: ${{ inputs.push || inputs.promote }}
+          KEEP_GOING: ${{ inputs.keep_going }}
+          GH_TOKEN: ${{ (inputs.push || inputs.promote) && secrets.LOAMS_BOT_TOKEN || '' }}
+          OUT: ${{ runner.temp }}/postgres-port
+          WORK: ${{ runner.temp }}/postgres-port-work
+        run: |
+          set -euo pipefail
+          prev=$((MAJOR - 1))
+          map=scripts/loams/port/pg${MAJOR}/map
+          args=(--from "loams/pg$prev" --since "$SINCE" --patch-id "$PATCH_ID")
+          [ -f "$map" ] && args+=(--map "$map")
+          [ "$KEEP_GOING" = true ] && args+=(--keep-going)
+          if [ "$PUSH" = true ]; then
+            [ -n "$GH_TOKEN" ] || { echo "::error::pushing needs the secret LOAMS_BOT_TOKEN"; exit 1; }
+            args+=(--push)
+          fi
+          status=0
+          scripts/loams/postgres-merge.sh port "$MAJOR" "$TAG" "${args[@]}" > "$RUNNER_TEMP/port.log" 2>&1 || status=$?
+          cat "$RUNNER_TEMP/port.log"
+          if [ -f "$OUT/complete" ]; then echo "complete=true" >> "$GITHUB_OUTPUT"; echo "sha=$(cat "$OUT/sha")" >> "$GITHUB_OUTPUT"; fi
+          {
+            echo "### Port of loams/pg$prev ($SINCE..) onto $TAG"; echo
+            [ -f "$OUT/summary.txt" ] && { cat "$OUT/summary.txt"; echo; }
+            if [ -f "$OUT/conflicting.txt" ]; then echo "Conflicts (survey):"; echo '```'; cat "$OUT/conflicting.txt"; echo '```'; fi
+            if [ -f "$OUT/remaining.txt" ]; then
+              echo "Stopped at \`$(cat "$OUT/commit")\` ($(cat "$OUT/how")); conflicted files:"; echo '```'; cat "$OUT/conflicts.txt"; echo '```'
+              echo "$(wc -l < "$OUT/remaining.txt") commit(s) remain."
+            fi
+            echo; echo '<details><summary>Log</summary>'; echo; echo '```'; tail -n 300 "$RUNNER_TEMP/port.log"; echo '```'; echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+      - name: The port's state and conflicts
+        if: always() && inputs.mode == 'port'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: postgres-port-${{ inputs.major }}-${{ inputs.tag }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/postgres-port/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      # The ported branch built on its own (no pgxn/neon): Postgres' own
+      # regression suites, before anything is promoted.
+      - name: Build dependencies
+        if: inputs.mode == 'port' && steps.port.outputs.complete == 'true' && (inputs.check || inputs.promote)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends bison flex libreadline-dev zlib1g-dev libssl-dev \
+            libicu-dev libxml2-dev libxslt1-dev pkg-config gdb
+      - name: Build and make check
+        if: inputs.mode == 'port' && steps.port.outputs.complete == 'true' && (inputs.check || inputs.promote)
+        working-directory: ${{ runner.temp }}/postgres-port-work
+        run: |
+          set -euo pipefail
+          ./configure --prefix="$RUNNER_TEMP/pg" --enable-debug --enable-cassert --with-openssl --with-icu \
+            --with-libxml --with-libxslt CFLAGS='-O2 -fsigned-char' > "$RUNNER_TEMP/configure.log"
+          # -k: report every compile error of the port in one run.
+          make -s -k -j"$(nproc)" world-bin > "$RUNNER_TEMP/build.log" 2>&1 || {
+            grep -E 'error:|undefined reference|Error [0-9]' "$RUNNER_TEMP/build.log" | sort -u | head -n 200; exit 1; }
+          make -s install-world-bin > /dev/null
+          # A crash leaves a core; its backtrace goes to the log.
+          sudo sysctl -q -w kernel.core_pattern="$RUNNER_TEMP/core.%e.%p"
+          ulimit -c unlimited
+          make check || {
+            find . -name regression.diffs -exec cat {} + | head -n 400
+            for c in "$RUNNER_TEMP"/core.*; do
+              [ -f "$c" ] || continue
+              echo "== backtrace of $c"
+              gdb -q -batch -ex 'bt 40' "$PWD/tmp_install$RUNNER_TEMP/pg/bin/postgres" "$c" 2>&1 | grep -v '^\[New LWP' | head -n 80
+            done
+            # The server's own log names an assertion or a crash.
+            find . -name postmaster.log -exec sh -c 'echo "== $1"; tail -n 80 "$1"' _ {} \;
+            exit 1; }
+      - name: installcheck-world
+        if: inputs.mode == 'port' && steps.port.outputs.complete == 'true' && (inputs.check || inputs.promote)
+        working-directory: ${{ runner.temp }}/postgres-port-work
+        run: |
+          set -euo pipefail
+          export PATH="$RUNNER_TEMP/pg/bin:$PATH" PGHOST=/tmp PGPORT=55432
+          initdb -D "$RUNNER_TEMP/data" --no-sync > /dev/null
+          pg_ctl -D "$RUNNER_TEMP/data" -l "$RUNNER_TEMP/server.log" -o "-p $PGPORT -k /tmp" -w start
+          status=0
+          make -s installcheck-world || status=$?
+          pg_ctl -D "$RUNNER_TEMP/data" -m fast -w stop || true
+          if [ "$status" -ne 0 ]; then find . -name regression.diffs -exec cat {} + | head -n 400; tail -n 100 "$RUNNER_TEMP/server.log"; fi
+          exit "$status"
+      - name: Promote loams/pg${{ inputs.major }}
+        if: inputs.mode == 'port' && inputs.promote && steps.port.outputs.complete == 'true'
+        env:
+          MAJOR: ${{ inputs.major }}
+          SHA: ${{ steps.port.outputs.sha }}
+          GH_TOKEN: ${{ secrets.LOAMS_BOT_TOKEN }}
+        working-directory: ${{ runner.temp }}/postgres-port-work
+        run: |
+          set -euo pipefail
+          # The exact commit the checks above built; the ruleset refuses
+          # anything but a fast-forward.
+          [ "$(git rev-parse HEAD)" = "$SHA" ]
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)" \
+            push -q origin "$SHA:refs/heads/loams/pg$MAJOR"
+          echo "fast-forwarded loams/pg$MAJOR to $SHA" | tee -a "$GITHUB_STEP_SUMMARY"

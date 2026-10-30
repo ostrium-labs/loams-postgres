@@ -15,6 +15,8 @@ class PgVersion(StrEnum):
     V15 = "15"
     V16 = "16"
     V17 = "17"
+    # Beta in Loams Postgres until NF2 Task 14 (Loams-Patch LP-0041).
+    V18 = "18"
 
     # Postgres Version for tests that uses `fixtures.utils.run_only_on_default_postgres`
     DEFAULT = V17

@@ -1578,7 +1578,8 @@ impl WalIngest {
                 use utils::rate_limit::RateLimit;
 
                 struct RateLimitPerPgVersion {
-                    rate_limiters: [Lazy<Mutex<RateLimit>>; 4],
+                    // One per major, PG14..=PG18.
+                    rate_limiters: [Lazy<Mutex<RateLimit>>; 5],
                 }
 
                 impl RateLimitPerPgVersion {
@@ -1586,7 +1587,7 @@ impl WalIngest {
                         Self {
                             rate_limiters: [const {
                                 Lazy::new(|| Mutex::new(RateLimit::new(Duration::from_secs(30))))
-                            }; 4],
+                            }; 5],
                         }
                     }
 
@@ -1595,7 +1596,7 @@ impl WalIngest {
                         pg_version: PgMajorVersion,
                     ) -> Option<&Lazy<Mutex<RateLimit>>> {
                         const MIN_PG_VERSION: u32 = PgMajorVersion::PG14.major_version_num();
-                        const MAX_PG_VERSION: u32 = PgMajorVersion::PG17.major_version_num();
+                        const MAX_PG_VERSION: u32 = PgMajorVersion::PG18.major_version_num();
                         let pg_version = pg_version.major_version_num();
 
                         if pg_version < MIN_PG_VERSION || pg_version > MAX_PG_VERSION {

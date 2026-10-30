@@ -5363,7 +5363,8 @@ impl TenantShard {
                     .await?;
             }
         }
-        let pgdata_lsn = import_datadir::get_lsn_from_controlfile(&pgdata_path)?.align();
+        let pgdata_lsn =
+            import_datadir::get_lsn_from_controlfile(&pgdata_path, pg_version)?.align();
 
         // Import the contents of the data directory at the initial checkpoint
         // LSN, and any WAL after that.

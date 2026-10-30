@@ -13,8 +13,7 @@ use pageserver_api::reltag::{RelTag, SlruKind};
 use postgres_ffi::relfile_utils::*;
 use postgres_ffi::waldecoder::WalStreamDecoder;
 use postgres_ffi::{
-    BLCKSZ, ControlFileData, DBState_DB_SHUTDOWNED, Oid, WAL_SEGMENT_SIZE, XLogFileName,
-    pg_constants,
+    BLCKSZ, ControlFileInfo, Oid, PgMajorVersion, WAL_SEGMENT_SIZE, XLogFileName, pg_constants,
 };
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio_tar::Archive;
@@ -30,15 +29,14 @@ use crate::tenant::Timeline;
 use crate::walingest::{WalIngest, WalIngestErrorKind};
 
 // Returns checkpoint LSN from controlfile
-pub fn get_lsn_from_controlfile(path: &Utf8Path) -> Result<Lsn> {
-    // Read control file to extract the LSN
+pub fn get_lsn_from_controlfile(path: &Utf8Path, pg_version: PgMajorVersion) -> Result<Lsn> {
+    // Read control file to extract the LSN, with the major's layout (LP-0041).
     let controlfile_path = path.join("global").join("pg_control");
     let controlfile_buf = std::fs::read(&controlfile_path)
         .with_context(|| format!("reading controlfile: {controlfile_path}"))?;
-    let controlfile = ControlFileData::decode(&controlfile_buf)?;
-    let lsn = controlfile.checkPoint;
+    let controlfile = ControlFileInfo::decode(&controlfile_buf, pg_version)?;
 
-    Ok(Lsn(lsn))
+    Ok(Lsn(controlfile.check_point))
 }
 
 ///
@@ -53,7 +51,7 @@ pub async fn import_timeline_from_postgres_datadir(
     pgdata_lsn: Lsn,
     ctx: &RequestContext,
 ) -> Result<()> {
-    let mut pg_control: Option<ControlFileData> = None;
+    let mut pg_control: Option<ControlFileInfo> = None;
 
     // TODO this shoud be start_lsn, which is not necessarily equal to end_lsn (aka lsn)
     // Then fishing out pg_control would be unnecessary
@@ -88,11 +86,11 @@ pub async fn import_timeline_from_postgres_datadir(
     // We expect the Postgres server to be shut down cleanly.
     let pg_control = pg_control.context("pg_control file not found")?;
     ensure!(
-        pg_control.state == DBState_DB_SHUTDOWNED,
+        pg_control.shut_down,
         "Postgres cluster was not shut down cleanly"
     );
     ensure!(
-        pg_control.checkPointCopy.redo == pgdata_lsn.0,
+        pg_control.redo == pgdata_lsn.0,
         "unexpected checkpoint REDO pointer"
     );
 
@@ -102,7 +100,7 @@ pub async fn import_timeline_from_postgres_datadir(
     import_wal(
         &pgdata_path.join("pg_wal"),
         tline,
-        Lsn(pg_control.checkPointCopy.redo),
+        Lsn(pg_control.redo),
         pgdata_lsn,
         ctx,
     )
@@ -360,7 +358,7 @@ pub async fn import_basebackup_from_tar(
     let mut modification = tline.begin_modification_for_import(base_lsn);
     modification.init_empty()?;
 
-    let mut pg_control: Option<ControlFileData> = None;
+    let mut pg_control: Option<ControlFileInfo> = None;
 
     // Import base
     let mut entries = Archive::new(reader).entries()?;
@@ -507,7 +505,7 @@ async fn import_file(
     reader: &mut (impl AsyncRead + Send + Sync + Unpin),
     len: usize,
     ctx: &RequestContext,
-) -> Result<Option<ControlFileData>> {
+) -> Result<Option<ControlFileInfo>> {
     let file_name = match file_path.file_name() {
         Some(name) => name.to_string_lossy(),
         None => return Ok(None),
@@ -527,10 +525,14 @@ async fn import_file(
             "pg_control" => {
                 let bytes = read_all_bytes(reader).await?;
 
-                // Extract the checkpoint record and import it separately.
-                let pg_control = ControlFileData::decode(&bytes[..])?;
-                let checkpoint_bytes = pg_control.checkPointCopy.encode()?;
-                modification.put_checkpoint(checkpoint_bytes)?;
+                // Decode with the timeline's major (18 moved the CRC), and
+                // refuse a data directory with data checksums on (D1111,
+                // LP-0041). Then extract the checkpoint record and import it
+                // separately.
+                let pg_control =
+                    ControlFileInfo::decode(&bytes[..], modification.tline.pg_version)?;
+                pg_control.check_importable()?;
+                modification.put_checkpoint(pg_control.checkpoint_bytes.clone())?;
                 debug!("imported control file");
 
                 // Import it as ControlFile

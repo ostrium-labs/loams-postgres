@@ -48,25 +48,20 @@ ARG BASE_IMAGE_SHA=${BASE_IMAGE_SHA/debian:bullseye-slim/debian@$BULLSEYE_SLIM_S
 FROM $BUILD_TOOLS AS pg-build
 WORKDIR /home/nonroot
 
-# The majors are the Makefile's POSTGRES_VERSIONS unless the build argument
-# POSTGRES_VERSIONS names others (NF2 Task 8, LP-0055: "v18 v17 v16 v15 v14"
-# builds /usr/local/v18 before 18 joins the Makefile's list). Every vendor tree
-# in the context is copied (.dockerignore lets vendor/postgres-*/ through); a
-# listed major without its tree fails here, not halfway through the build.
-ARG POSTGRES_VERSIONS=""
-COPY --chown=nonroot vendor/ vendor/
+COPY --chown=nonroot vendor/postgres-v14 vendor/postgres-v14
+COPY --chown=nonroot vendor/postgres-v15 vendor/postgres-v15
+COPY --chown=nonroot vendor/postgres-v16 vendor/postgres-v16
+COPY --chown=nonroot vendor/postgres-v17 vendor/postgres-v17
+COPY --chown=nonroot vendor/postgres-v18 vendor/postgres-v18
 COPY --chown=nonroot Makefile Makefile
 COPY --chown=nonroot postgres.mk postgres.mk
 COPY --chown=nonroot scripts/ninstall.sh scripts/ninstall.sh
 
 ENV BUILD_TYPE=release
+# Every major in the Makefile's POSTGRES_VERSIONS, 18 (beta) included; the final
+# stage carries each one under /usr/local/v<N> (NF2 Task 8, LP-0055).
 RUN set -e \
-    && versions="${POSTGRES_VERSIONS:-$(make -s print-postgres-versions)}" \
-    && for v in $versions; do \
-        [ -f "vendor/postgres-$v/configure" ] || { echo "POSTGRES_VERSIONS has $v, but vendor/postgres-$v is not in the build context"; exit 1; }; \
-    done \
-    && echo "Postgres majors: $versions" \
-    && mold -run make -j $(nproc) -s POSTGRES_VERSIONS="$versions" postgres
+    && mold -run make -j $(nproc) -s postgres
 
 # 2. Prepare cargo-chef recipe
 FROM $BUILD_TOOLS AS plan
@@ -83,7 +78,6 @@ FROM $BUILD_TOOLS AS build
 WORKDIR /home/nonroot
 ARG GIT_VERSION=local
 ARG BUILD_TAG
-ARG POSTGRES_VERSIONS=""
 ARG ADDITIONAL_RUSTFLAGS=""
 ARG IO_ALIGNMENT=512
 ENV CARGO_FEATURES="default"
@@ -118,8 +112,8 @@ RUN set -e \
       --bin neon_local \
       --bin storage_scrubber \
       --locked --release \
-    && versions="${POSTGRES_VERSIONS:-$(make -s print-postgres-versions)}" \
-    && mold -run make -j $(nproc) -s POSTGRES_VERSIONS="$versions" neon-pg-ext \
+    && mold -run make -j $(nproc) -s neon-pg-ext \
+    && versions="$(make -s print-postgres-versions)" \
     # The majors the image carries, one /usr/local/v<N> each, and their list
     # (/usr/share/doc/loams-postgres/POSTGRES_VERSIONS; storage_image_has_majors).
     && mkdir -p pg_dist \
