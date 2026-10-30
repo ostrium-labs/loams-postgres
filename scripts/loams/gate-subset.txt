@@ -20,6 +20,8 @@ test_runner/regress/test_branching.py::test_branching_with_pgbench
 test_runner/regress/test_compute_reconfigure.py::test_compute_reconfigure
 # import_pgdata (fast_import's path into a timeline)
 test_runner/regress/test_import_pgdata.py::test_pgdata_import_smoke
+# fast_import with a connection string and Loams' own bucket, no spec.json (NF2 Task 13's upgrade, LP-0057)
+test_runner/regress/test_import_pgdata.py::test_loams_fast_import_connstring_to_s3_without_spec
 # the local file cache
 test_runner/regress/test_lfc_resize.py::test_lfc_resize
 test_runner/regress/test_local_file_cache.py::test_local_file_cache_unlink
