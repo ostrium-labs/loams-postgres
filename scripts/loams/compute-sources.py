@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The compute image's source artifact (LP-0012, NF1 Task 12).
 
-    compute-sources.py [compute/compute-node.Dockerfile] > sources.Dockerfile
+    compute-sources.py [--pg-version v<N>] [compute/compute-node.Dockerfile] > sources.Dockerfile
 
 Prints the compute Dockerfile with two stages appended:
 
@@ -17,7 +17,9 @@ loams-sign.yml attaches that tar to the compute image's index with
 `oras attach --artifact-type application/vnd.loams.sources.v1`, so every GPL
 component (PostGIS, pgRouting, postgresql-unit, SFCGAL) ships with its source.
 The stages are generated, not kept in the Dockerfile, so a new `-src` stage is
-covered without an edit. Every `git clone` (plv8, pg_duckdb, pgbouncer; none of
+covered without an edit. With --pg-version v<N> for a major built with its own
+`extensions-v<N>` layer (NF2 Task 8), only the `-src` stages of the extensions
+in that layer are collected. Every `git clone` (plv8, pg_duckdb, pgbouncer; none of
 them GPL) is also listed in GIT-SOURCES with its URL and tag; plv8's stage packs
 its clone as plv8.tar.gz, which is collected like the tarballs.
 """
@@ -31,8 +33,14 @@ SRC_STAGE = re.compile(r"^FROM \S+ AS ([a-z0-9_-]+-src)$", re.M)
 GIT_CLONE = re.compile(r"git clone [^\n]*?(?:--branch (\S+) )?(https://\S+?)(?:\.git)?\s")
 
 
-def src_stages(dockerfile_text):
-    return SRC_STAGE.findall(dockerfile_text)
+def src_stages(dockerfile_text, pg_version=None):
+    names = SRC_STAGE.findall(dockerfile_text)
+    if pg_version:
+        layer = re.search(rf"(?ms)^FROM \S+ AS extensions-{re.escape(pg_version)}$(.*?)(?=^FROM )", dockerfile_text)
+        if layer:
+            built = set(re.findall(r"(?m)^COPY\s+(?:--\S+\s+)*--from=(\S+)", layer.group(1)))
+            names = [n for n in names if n[: -len("-src")] + "-build" in built]
+    return names
 
 
 def git_sources(dockerfile_text):
@@ -47,8 +55,8 @@ def git_sources(dockerfile_text):
     return sorted(out)
 
 
-def stages(dockerfile_text):
-    names = src_stages(dockerfile_text)
+def stages(dockerfile_text, pg_version=None):
+    names = src_stages(dockerfile_text, pg_version)
     if not names:
         raise SystemExit("compute-sources: no -src stage found")
     mounts = " \\\n".join(
@@ -84,9 +92,16 @@ COPY --from=loams-sources /sources/ /
 
 
 def main(argv):
-    path = Path(argv[1]) if len(argv) > 1 else ROOT / "compute" / "compute-node.Dockerfile"
+    args = argv[1:]
+    pg_version = None
+    if args[:1] == ["--pg-version"]:
+        if len(args) < 2 or not re.fullmatch(r"v[0-9]+", args[1]):
+            print("compute-sources: --pg-version needs v<N>", file=sys.stderr)
+            return 2
+        pg_version, args = args[1], args[2:]
+    path = Path(args[0]) if args else ROOT / "compute" / "compute-node.Dockerfile"
     text = path.read_text()
-    sys.stdout.write(text + stages(text))
+    sys.stdout.write(text + stages(text, pg_version))
     return 0
 
 

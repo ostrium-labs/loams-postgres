@@ -51,6 +51,20 @@ class Sources(unittest.TestCase):
         self.assertTrue(any("github.com/plv8/plv8" in g for g in git), git)
         self.assertTrue(any("github.com/pgbouncer/pgbouncer" in g for g in git), git)
 
+    # NF2 Task 8: a major built with its own extensions-v<N> layer collects only the
+    # sources of the extensions in it (the other -src stages may refuse that major).
+    def test_subset_major_collects_its_extensions_only(self):
+        out = subprocess.run([sys.executable, "-I", str(SCRIPT), "--pg-version", "v18", str(DOCKERFILE)],
+                             capture_output=True, text=True, check=True).stdout
+        mounts = set(re.findall(r"--mount=type=bind,from=(\S+?),", out))
+        self.assertIn("postgis-src", mounts)
+        self.assertIn("pg_cron-src", mounts)
+        self.assertNotIn("plv8-src", mounts)
+        self.assertNotIn("pgrouting-src", mounts)
+        self.assertEqual(mounts, set(cs.src_stages(self.text, "v18")))
+        # Every other major keeps every -src stage.
+        self.assertEqual(cs.src_stages(self.text, "v17"), cs.src_stages(self.text))
+
     def test_no_src_stage_is_an_error(self):
         with self.assertRaises(SystemExit):
             cs.stages("FROM debian AS build\n")
