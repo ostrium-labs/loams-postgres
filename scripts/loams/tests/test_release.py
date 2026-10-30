@@ -6,6 +6,8 @@
                                  and the patches added and dropped since the last release
     pin_pr_matches_release       the pin document carries exactly the release's digests,
                                  in the schema Loams' pins.py reads
+    release_adds_beta_major      a full release with --beta 18 pins 18 as beta, with its
+                                 compute image and the storage image's 18 minor (NF2 Task 8)
 
 Run: python3 -I scripts/loams/tests/test_release.py
 """
@@ -145,6 +147,29 @@ class PinDocument(unittest.TestCase):
     def test_a_major_without_its_compute_digest_is_refused(self):
         with self.assertRaises(rn.Refused):
             self.doc(compute={"17": D["17"]})
+
+    def test_release_adds_beta_major(self):
+        rev = {**REVISIONS, "v18": ["18.6", "874faa09"]}
+        d18 = "sha256:" + "4" * 64
+        doc = self.doc(revisions=rev, compute={"16": D["16"], "17": D["17"], "18": d18}, beta=[18])
+        self.assertEqual(doc["majors"], {"supported": [17], "beta": [18], "maintenance": [16], "default": 17})
+        self.assertEqual(doc["images"]["compute-v18"], {
+            "repository": "ghcr.io/ostrium-labs/loams-postgres-compute-v18", "digest": d18,
+            "source": f"ostrium-labs/loams-postgres@{SHA}", "pg_minor": "18.6"})
+        self.assertEqual(doc["images"]["storage"]["pg_minors"], {"16": "16.9", "17": "17.5", "18": "18.6"})
+
+    def test_beta_major_needs_a_full_release(self):
+        rev = {**REVISIONS, "v18": ["18.6", "874faa09"]}
+        with self.assertRaises(rn.Refused):  # no compute image for 18
+            self.doc("storage", revisions=rev, beta=[18])
+        with self.assertRaises(rn.Refused):  # the pinned storage image has no 18
+            self.doc("compute", revisions=rev, compute={"16": D["16"], "17": D["17"], "18": D["17"]}, beta=[18])
+
+    def test_beta_of_a_pinned_major_is_refused(self):
+        with self.assertRaises(rn.Refused):
+            self.doc(beta=[17])
+        with self.assertRaises(rn.Refused):  # no tree
+            self.doc(compute={"16": D["16"], "17": D["17"], "18": D["17"]}, beta=[18])
 
 
 class Notes(unittest.TestCase):

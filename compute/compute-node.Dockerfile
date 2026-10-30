@@ -3,7 +3,8 @@
 # different images for each PostgreSQL major version.
 #
 # We use Debian as the base for all the steps. The production images use Debian bookworm
-# for v17, and Debian bullseye for older PostgreSQL versions.
+# for v16 and v17, Debian bullseye for older PostgreSQL versions, and Debian trixie for
+# v18 (beta; NF2 Task 8, LP-0056, Q727).
 #
 # ## Intermediary layers
 #
@@ -94,6 +95,8 @@ ARG DEBIAN_FLAVOR=${DEBIAN_VERSION}-slim
 #    and updates on regular bases and in automated way.
 ARG BOOKWORM_SLIM_SHA=sha256:40b107342c492725bc7aacbe93a49945445191ae364184a6d24fedb28172f6f7
 ARG BULLSEYE_SLIM_SHA=sha256:e831d9a884d63734fe3dd9c491ed9a5a3d4c6a6d32c5b14f2067357c49b0b7e1
+# debian:trixie-20261005-slim (NF2 Task 8)
+ARG TRIXIE_SLIM_SHA=sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f
 
 # Here we use ${var/search/replace} syntax, to check
 # if base image is one of the images, we pin image index for.
@@ -102,6 +105,7 @@ ARG BULLSEYE_SLIM_SHA=sha256:e831d9a884d63734fe3dd9c491ed9a5a3d4c6a6d32c5b14f206
 ARG BASE_IMAGE_SHA=debian:${DEBIAN_FLAVOR}
 ARG BASE_IMAGE_SHA=${BASE_IMAGE_SHA/debian:bookworm-slim/debian@$BOOKWORM_SLIM_SHA}
 ARG BASE_IMAGE_SHA=${BASE_IMAGE_SHA/debian:bullseye-slim/debian@$BULLSEYE_SLIM_SHA}
+ARG BASE_IMAGE_SHA=${BASE_IMAGE_SHA/debian:trixie-slim/debian@$TRIXIE_SLIM_SHA}
 
 # By default, build all PostgreSQL extensions. For quick local testing when you don't
 # care about the extensions, pass EXTENSIONS=none or EXTENSIONS=minimal
@@ -139,6 +143,10 @@ RUN case $DEBIAN_VERSION in \
       # Version-specific installs for Bookworm (PG17):
       bookworm) \
         VERSION_INSTALLS="cmake libstdc++-12-dev"; \
+      ;; \
+      # Version-specific installs for Trixie (PG18):
+      trixie) \
+        VERSION_INSTALLS="cmake libstdc++-14-dev"; \
       ;; \
       *) \
         echo "Unknown Debian version ${DEBIAN_VERSION}" && exit 1 \
@@ -185,7 +193,8 @@ RUN cd postgres && \
     "v14" | "v15" | "v16") \
     patch -p1 < /pg_stat_statements_pg14-16.patch; \
     ;; \
-    "v17") \
+    # 18's pg_stat_statements 1.12 leaves the reset function alone, so 17's patch applies.
+    "v17" | "v18") \
     patch -p1 < /pg_stat_statements_pg17.patch; \
     ;; \
     *) \
@@ -247,6 +256,12 @@ RUN case "${DEBIAN_VERSION}" in \
         export SFCGAL_VERSION=1.3.10 \
         export SFCGAL_CHECKSUM=4e39b3b2adada6254a7bdba6d297bb28e1a9835a9f879b74f37e2dab70203232 \
     ;; \
+    # Trixie's CGAL is 6.0, which SFCGAL 2 needs; 2.0.0 is trixie's own libsfcgal2,
+    # which the final image installs.
+    "trixie") \
+        export SFCGAL_VERSION=2.0.0 \
+        export SFCGAL_CHECKSUM=11843953f49e7e4432c42fd27d54e1ff7ca55d0cc72507725c2a5d840c2c6535 \
+    ;; \
     *) \
         echo "unexpected PostgreSQL version" && exit 1 \
     ;; \
@@ -258,6 +273,11 @@ RUN case "${DEBIAN_VERSION}" in \
 # Postgis 3.5.0 supports v17
 WORKDIR /ext-src
 RUN case "${PG_VERSION:?}" in \
+    # PostGIS 3.6 supports v18 (and SFCGAL 2)
+    "v18") \
+        export POSTGIS_VERSION=3.6.4 \
+        export POSTGIS_CHECKSUM=ed8dc6679f1e06f7b113592b04cde2a7e00f1b1e681294c8ca2204058990cec6 \
+    ;; \
     "v17") \
         export POSTGIS_VERSION=3.5.0 \
         export POSTGIS_CHECKSUM=ca698a22cc2b2b3467ac4e063b43a28413f3004ddd505bdccdd74c56a647f510 \
@@ -515,7 +535,7 @@ FROM build-deps AS pgvector-src
 ARG PG_VERSION
 
 WORKDIR /ext-src
-COPY compute/patches/pgvector.patch .
+COPY compute/patches/pgvector*.patch .
 
 # By default, pgvector Makefile uses `-march=native`. We don't want that,
 # because we build the images on different machines than where we run them.
@@ -523,12 +543,25 @@ COPY compute/patches/pgvector.patch .
 #
 # vector >0.7.4 supports v17
 # last release v0.8.0 - Oct 30, 2024
-RUN wget https://github.com/pgvector/pgvector/archive/refs/tags/v0.8.0.tar.gz -O pgvector.tar.gz && \
-    echo "867a2c328d4928a5a9d6f052cd3bc78c7d60228a9b914ad32aa3db88e9de27b0 pgvector.tar.gz" | sha256sum --check && \
-    mkdir pgvector-src && cd pgvector-src && tar xzf ../pgvector.tar.gz --strip-components=1 -C . && \
-    wget https://github.com/pgvector/pgvector/raw/refs/tags/v0.7.4/sql/vector.sql -O ./sql/vector--0.7.4.sql && \
-    echo "10218d05dc02299562252a9484775178b14a1d8edb92a2d1672ef488530f7778 ./sql/vector--0.7.4.sql" | sha256sum --check && \
-    patch -p1 < /ext-src/pgvector.patch
+#
+# v18 (beta): 0.8.7 (Oct 1, 2026; 0.8.1 first supports 18), with only the
+# unlogged-build hooks (pgvector_v0.8.7.patch): a new major has no databases
+# that installed 0.7.4.
+RUN if [ "${PG_VERSION:?}" = "v18" ]; then \
+        wget https://github.com/pgvector/pgvector/archive/refs/tags/v0.8.7.tar.gz -O pgvector.tar.gz && \
+        echo "cac0b10c360f05b2d521200105ba3697e773d4cd3731f5a915a7e37ebe0bea85 pgvector.tar.gz" | sha256sum --check && \
+        mkdir pgvector-src && cd pgvector-src && tar xzf ../pgvector.tar.gz --strip-components=1 -C . && \
+        patch -p1 < /ext-src/pgvector_v0.8.7.patch && \
+        rm /ext-src/pgvector.patch; \
+    else \
+        wget https://github.com/pgvector/pgvector/archive/refs/tags/v0.8.0.tar.gz -O pgvector.tar.gz && \
+        echo "867a2c328d4928a5a9d6f052cd3bc78c7d60228a9b914ad32aa3db88e9de27b0 pgvector.tar.gz" | sha256sum --check && \
+        mkdir pgvector-src && cd pgvector-src && tar xzf ../pgvector.tar.gz --strip-components=1 -C . && \
+        wget https://github.com/pgvector/pgvector/raw/refs/tags/v0.7.4/sql/vector.sql -O ./sql/vector--0.7.4.sql && \
+        echo "10218d05dc02299562252a9484775178b14a1d8edb92a2d1672ef488530f7778 ./sql/vector--0.7.4.sql" | sha256sum --check && \
+        patch -p1 < /ext-src/pgvector.patch && \
+        rm /ext-src/pgvector_v0.8.7.patch; \
+    fi
 
 FROM pg-build AS pgvector-build
 COPY --from=pgvector-src /ext-src/ /ext-src/
@@ -571,8 +604,19 @@ ARG PG_VERSION
 # HypoPG 1.4.1 supports v17
 # last release 1.4.1 - Apr 28, 2024
 WORKDIR /ext-src
-RUN wget https://github.com/HypoPG/hypopg/archive/refs/tags/1.4.1.tar.gz -O hypopg.tar.gz && \
-    echo "9afe6357fd389d8d33fad81703038ce520b09275ec00153c6c89282bcdedd6bc hypopg.tar.gz" | sha256sum --check && \
+# v18 (beta): 1.4.3 (Jun 19, 2026; 1.4.2 first supports 18)
+RUN case "${PG_VERSION:?}" in \
+    "v18") \
+        export HYPOPG_VERSION=1.4.3 \
+        export HYPOPG_CHECKSUM=498a961d88cf37057fd9e98027d06fe805c8959d51895c3d9b94c9eb4e14f706 \
+    ;; \
+    *) \
+        export HYPOPG_VERSION=1.4.1 \
+        export HYPOPG_CHECKSUM=9afe6357fd389d8d33fad81703038ce520b09275ec00153c6c89282bcdedd6bc \
+    ;; \
+    esac && \
+    wget https://github.com/HypoPG/hypopg/archive/refs/tags/${HYPOPG_VERSION}.tar.gz -O hypopg.tar.gz && \
+    echo "${HYPOPG_CHECKSUM} hypopg.tar.gz" | sha256sum --check && \
     mkdir hypopg-src && cd hypopg-src && tar xzf ../hypopg.tar.gz --strip-components=1 -C .
 
 FROM pg-build AS hypopg-build
@@ -802,6 +846,14 @@ RUN case "${PG_VERSION:?}" in \
         export TIMESCALEDB_VERSION=2.17.1 \
         export TIMESCALEDB_CHECKSUM=6277cf43f5695e23dae1c5cfeba00474d730b66ed53665a84b787a6bb1a57e28 \
         ;; \
+      # v18 (beta): 2.30.2 (Sep 29, 2026; 2.23.0 first supports 18), Apache-only build
+      "v18") \
+        export TIMESCALEDB_VERSION=2.30.2 \
+        export TIMESCALEDB_CHECKSUM=a7003a70836477dc8d575d95a4c515d8a22ed219d0cb03b3640bb813f04e1b42 \
+        ;; \
+      *) \
+        echo "unexpected PostgreSQL version" && exit 1 \
+        ;; \
     esac && \
     wget https://github.com/timescale/timescaledb/archive/refs/tags/${TIMESCALEDB_VERSION}.tar.gz -O timescaledb.tar.gz && \
     echo "${TIMESCALEDB_CHECKSUM} timescaledb.tar.gz" | sha256sum --check && \
@@ -844,6 +896,10 @@ RUN case "${PG_VERSION:?}" in \
         export PG_HINT_PLAN_VERSION=17_1_7_0 \
         export PG_HINT_PLAN_CHECKSUM=06dd306328c67a4248f48403c50444f30959fb61ebe963248dbc2afb396fe600 \
         ;; \
+      "v18") \
+        export PG_HINT_PLAN_VERSION=18_1_8_1 \
+        export PG_HINT_PLAN_CHECKSUM=a4fca485e54fe8e67f9104595ab254aee17cf766d0f261666f5079965d225f6a \
+        ;; \
       *) \
         echo "Export the valid PG_HINT_PLAN_VERSION variable" && exit 1 \
         ;; \
@@ -874,8 +930,19 @@ ARG PG_VERSION
 # We set it in shared_preload_libraries and computes will fail to start if library is not found.
 WORKDIR /ext-src
 COPY compute/patches/pg_cron.patch .
-RUN wget https://github.com/citusdata/pg_cron/archive/refs/tags/v1.6.4.tar.gz -O pg_cron.tar.gz && \
-    echo "52d1850ee7beb85a4cb7185731ef4e5a90d1de216709d8988324b0d02e76af61 pg_cron.tar.gz" | sha256sum --check && \
+# v18 (beta): 1.6.8 (Sep 8, 2026; 1.6.6 first supports 18)
+RUN case "${PG_VERSION:?}" in \
+    "v18") \
+        export PG_CRON_VERSION=1.6.8 \
+        export PG_CRON_CHECKSUM=c19ab9bb35406c60fb51ecda993737c083850abe424acb6c1030439d00a1f8e4 \
+    ;; \
+    *) \
+        export PG_CRON_VERSION=1.6.4 \
+        export PG_CRON_CHECKSUM=52d1850ee7beb85a4cb7185731ef4e5a90d1de216709d8988324b0d02e76af61 \
+    ;; \
+    esac && \
+    wget https://github.com/citusdata/pg_cron/archive/refs/tags/v${PG_CRON_VERSION}.tar.gz -O pg_cron.tar.gz && \
+    echo "${PG_CRON_CHECKSUM} pg_cron.tar.gz" | sha256sum --check && \
     mkdir pg_cron-src && cd pg_cron-src && tar xzf ../pg_cron.tar.gz --strip-components=1 -C . && \
     patch < /ext-src/pg_cron.patch
 
@@ -1100,8 +1167,8 @@ FROM pg-build-with-cargo AS rust-extensions-build
 ARG PG_VERSION
 
 RUN case "${PG_VERSION:?}" in \
-        'v17') \
-            echo 'v17 is not supported yet by pgrx. Quit' && exit 0;; \
+        'v17' | 'v18') \
+            echo "$PG_VERSION is not supported by pgrx 0.11. Quit" && exit 0;; \
     esac && \
     cargo install --locked --version 0.11.3 cargo-pgrx && \
     /bin/bash -c 'cargo pgrx init --pg${PG_VERSION:1}=/usr/local/pgsql/bin/pg_config'
@@ -1367,8 +1434,19 @@ ARG PG_VERSION
 # wal2json wal2json_2_6 supports v17
 # last release wal2json_2_6 - Apr 25, 2024
 WORKDIR /ext-src
-RUN wget https://github.com/eulerto/wal2json/archive/refs/tags/wal2json_2_6.tar.gz -O wal2json.tar.gz && \
-    echo "18b4bdec28c74a8fc98a11c72de38378a760327ef8e5e42e975b0029eb96ba0d wal2json.tar.gz" | sha256sum --check && \
+# v18 (beta): wal2json_2_7 (Oct 9, 2026), the first release for 18
+RUN case "${PG_VERSION:?}" in \
+    "v18") \
+        export WAL2JSON_VERSION=2_7 \
+        export WAL2JSON_CHECKSUM=e6c12d02dc32e4d610dce33ee52ea85a54e12a563e79c4844508b6c061ff07a1 \
+    ;; \
+    *) \
+        export WAL2JSON_VERSION=2_6 \
+        export WAL2JSON_CHECKSUM=18b4bdec28c74a8fc98a11c72de38378a760327ef8e5e42e975b0029eb96ba0d \
+    ;; \
+    esac && \
+    wget https://github.com/eulerto/wal2json/archive/refs/tags/wal2json_${WAL2JSON_VERSION}.tar.gz -O wal2json.tar.gz && \
+    echo "${WAL2JSON_CHECKSUM} wal2json.tar.gz" | sha256sum --check && \
     mkdir wal2json-src && cd wal2json-src && tar xzf ../wal2json.tar.gz --strip-components=1 -C .
 
 FROM pg-build AS wal2json-build
@@ -1389,8 +1467,19 @@ ARG PG_VERSION
 # pg_ivm v1.9 supports v17
 # last release v1.9 - Jul 31
 WORKDIR /ext-src
-RUN wget https://github.com/sraoss/pg_ivm/archive/refs/tags/v1.9.tar.gz -O pg_ivm.tar.gz && \
-    echo "59e15722939f274650abf637f315dd723c87073496ca77236b044cb205270d8b pg_ivm.tar.gz" | sha256sum --check && \
+# v18 (beta): v1.16 (Sep 30, 2026; v1.12 first supports 18)
+RUN case "${PG_VERSION:?}" in \
+    "v18") \
+        export PG_IVM_VERSION=1.16 \
+        export PG_IVM_CHECKSUM=87807d6af1974fce591715d55f75d939dffea33ea6908b413e62d3dd79b9c583 \
+    ;; \
+    *) \
+        export PG_IVM_VERSION=1.9 \
+        export PG_IVM_CHECKSUM=59e15722939f274650abf637f315dd723c87073496ca77236b044cb205270d8b \
+    ;; \
+    esac && \
+    wget https://github.com/sraoss/pg_ivm/archive/refs/tags/v${PG_IVM_VERSION}.tar.gz -O pg_ivm.tar.gz && \
+    echo "${PG_IVM_CHECKSUM} pg_ivm.tar.gz" | sha256sum --check && \
     mkdir pg_ivm-src && cd pg_ivm-src && tar xzf ../pg_ivm.tar.gz --strip-components=1 -C .
 
 FROM pg-build AS pg_ivm-build
@@ -1412,8 +1501,20 @@ ARG PG_VERSION
 # should support v17 https://github.com/pgpartman/pg_partman/discussions/693
 # last release 5.1.0  Apr 2, 2024
 WORKDIR /ext-src
-RUN wget https://github.com/pgpartman/pg_partman/archive/refs/tags/v5.1.0.tar.gz -O pg_partman.tar.gz && \
-    echo "3e3a27d7ff827295d5c55ef72f07a49062d6204b3cb0b9a048645d6db9f3cb9f pg_partman.tar.gz" | sha256sum --check && \
+# v18 (beta): v5.4.3 (Mar 5, 2026; 5.3.0 first supports 18; 5.5.0 changes the
+# background worker's role default, so it waits)
+RUN case "${PG_VERSION:?}" in \
+    "v18") \
+        export PG_PARTMAN_VERSION=5.4.3 \
+        export PG_PARTMAN_CHECKSUM=c52e3b8cf80d306468f48fbdb1905e4c2574bf8362240af57aebbbf9e18c6fe2 \
+    ;; \
+    *) \
+        export PG_PARTMAN_VERSION=5.1.0 \
+        export PG_PARTMAN_CHECKSUM=3e3a27d7ff827295d5c55ef72f07a49062d6204b3cb0b9a048645d6db9f3cb9f \
+    ;; \
+    esac && \
+    wget https://github.com/pgpartman/pg_partman/archive/refs/tags/v${PG_PARTMAN_VERSION}.tar.gz -O pg_partman.tar.gz && \
+    echo "${PG_PARTMAN_CHECKSUM} pg_partman.tar.gz" | sha256sum --check && \
     mkdir pg_partman-src && cd pg_partman-src && tar xzf ../pg_partman.tar.gz --strip-components=1 -C .
 
 FROM pg-build AS pg_partman-build
@@ -1485,8 +1586,19 @@ RUN make install -j $(getconf _NPROCESSORS_ONLN) && \
 FROM build-deps AS pg_repack-src
 ARG PG_VERSION
 WORKDIR /ext-src
-RUN wget https://github.com/reorg/pg_repack/archive/refs/tags/ver_1.5.2.tar.gz -O pg_repack.tar.gz && \
-    echo '4516cad42251ed3ad53ff619733004db47d5755acac83f75924cd94d1c4fb681 pg_repack.tar.gz' | sha256sum --check && \
+# v18 (beta): 1.5.3 (Oct 26, 2025), the first release for 18
+RUN case "${PG_VERSION:?}" in \
+    "v18") \
+        export PG_REPACK_VERSION=1.5.3 \
+        export PG_REPACK_CHECKSUM=9439892c0b7c7575677f61133e5692f3e8cfd5c6688c5db4fb202320c668c745 \
+    ;; \
+    *) \
+        export PG_REPACK_VERSION=1.5.2 \
+        export PG_REPACK_CHECKSUM=4516cad42251ed3ad53ff619733004db47d5755acac83f75924cd94d1c4fb681 \
+    ;; \
+    esac && \
+    wget https://github.com/reorg/pg_repack/archive/refs/tags/ver_${PG_REPACK_VERSION}.tar.gz -O pg_repack.tar.gz && \
+    echo "${PG_REPACK_CHECKSUM} pg_repack.tar.gz" | sha256sum --check && \
     mkdir pg_repack-src && cd pg_repack-src && tar xzf ../pg_repack.tar.gz --strip-components=1 -C .
 
 FROM rust-extensions-build AS pg_repack-build
@@ -1506,7 +1618,8 @@ RUN make -j $(getconf _NPROCESSORS_ONLN) && \
 FROM build-deps AS pgaudit-src
 ARG PG_VERSION
 WORKDIR /ext-src
-COPY "compute/patches/pgaudit-parallel_workers-${PG_VERSION}.patch" .
+# 18.0 carries the parallel-workers fix itself, so v18 has no patch.
+COPY compute/patches/pgaudit-parallel_workers-*.patch .
 RUN case "${PG_VERSION}" in \
     "v14") \
     export PGAUDIT_VERSION=1.6.3 \
@@ -1524,13 +1637,19 @@ RUN case "${PG_VERSION}" in \
     export PGAUDIT_VERSION=17.1 \
     export PGAUDIT_CHECKSUM=9c5f37504d393486cc75d2ced83f75f5899be64fa85f689d6babb833b4361e6c \
     ;; \
+    "v18") \
+    export PGAUDIT_VERSION=18.0 \
+    export PGAUDIT_CHECKSUM=988e8afeda320ebe0a3e632ef6b6bce5d3a08346c2e100a173a585c9521d1fa5 \
+    ;; \
     *) \
     echo "pgaudit is not supported on this PostgreSQL version" && exit 1;; \
     esac && \
     wget https://github.com/pgaudit/pgaudit/archive/refs/tags/${PGAUDIT_VERSION}.tar.gz -O pgaudit.tar.gz && \
     echo "${PGAUDIT_CHECKSUM} pgaudit.tar.gz" | sha256sum --check && \
     mkdir pgaudit-src && cd pgaudit-src && tar xzf ../pgaudit.tar.gz --strip-components=1 -C . && \
-    patch -p1 < "/ext-src/pgaudit-parallel_workers-${PG_VERSION}.patch"
+    if [ "${PG_VERSION}" != "v18" ]; then patch -p1 < "/ext-src/pgaudit-parallel_workers-${PG_VERSION}.patch"; fi && \
+    # Keep only the patch applied (the source artifact collects /ext-src/*.patch).
+    find /ext-src -maxdepth 1 -name 'pgaudit-parallel_workers-*.patch' ! -name "pgaudit-parallel_workers-${PG_VERSION}.patch" -delete
 
 FROM pg-build AS pgaudit-build
 COPY --from=pgaudit-src /ext-src/ /ext-src/
@@ -1651,6 +1770,31 @@ COPY --from=pg_duckdb-build /usr/local/pgsql/ /usr/local/pgsql/
 COPY --from=pg_repack-build /usr/local/pgsql/ /usr/local/pgsql/
 COPY --from=pgaudit-build /usr/local/pgsql/ /usr/local/pgsql/
 COPY --from=pgauditlogtofile-build /usr/local/pgsql/ /usr/local/pgsql/
+
+#########################################################################################
+#
+# Layer "extensions-v18"
+# The extensions ported to Postgres 18 so far (beta; NF2 Task 8, LP-0056): the
+# `core` ones of design §51 §7.1 that have a release for 18, and timescaledb,
+# which shared_preload_libraries names. compute-matrix.py builds v18 with
+# EXTENSIONS=v18; NF2 Task 9 ports the rest (pg_session_jwt with pgrx 0.16, the
+# other pgrx extensions, plv8, rdkit, ...) and then moves v18 to `all`.
+#
+#########################################################################################
+FROM build-deps AS extensions-v18
+
+COPY --from=postgis-build /usr/local/pgsql/ /usr/local/pgsql/
+COPY --from=postgis-build /sfcgal/* /
+COPY --from=pgvector-build /usr/local/pgsql/ /usr/local/pgsql/
+COPY --from=hypopg-build /usr/local/pgsql/ /usr/local/pgsql/
+COPY --from=timescaledb-build /usr/local/pgsql/ /usr/local/pgsql/
+COPY --from=pg_hint_plan-build /usr/local/pgsql/ /usr/local/pgsql/
+COPY --from=pg_cron-build /usr/local/pgsql/ /usr/local/pgsql/
+COPY --from=wal2json-build /usr/local/pgsql /usr/local/pgsql
+COPY --from=pg_ivm-build /usr/local/pgsql/ /usr/local/pgsql/
+COPY --from=pg_partman-build /usr/local/pgsql/ /usr/local/pgsql/
+COPY --from=pg_repack-build /usr/local/pgsql/ /usr/local/pgsql/
+COPY --from=pgaudit-build /usr/local/pgsql/ /usr/local/pgsql/
 
 #########################################################################################
 #
@@ -1820,6 +1964,9 @@ RUN apt-get update && case $DEBIAN_VERSION in \
       bookworm) \
         apt-get install -y libgdal32 libproj25 time; \
       ;; \
+      trixie) \
+        apt-get install -y libgdal36 libproj25 time; \
+      ;; \
       *) \
         echo "Unknown Debian version ${DEBIAN_VERSION}" && exit 1 \
       ;; \
@@ -1915,18 +2062,25 @@ SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 RUN echo 'Acquire::Retries "5";' > /etc/apt/apt.conf.d/80-retries && \
     echo -e "retry_connrefused = on\ntimeout=15\ntries=5\n" > /root/.wgetrc
 RUN apt update && \
+    BEFORE_TRIXIE="libboost-iostreams1.74.0 libboost-regex1.74.0 libboost-serialization1.74.0 libboost-system1.74.0 libcurl4 libevent-2.1-7 libgeos-c1v5 libreadline8 libsfcgal1" && \
     case $DEBIAN_VERSION in \
-      # Version-specific installs for Bullseye (PG14-PG16):
+      # Version-specific installs for Bullseye (PG14-PG15):
       # libicu67, locales for collations (including ICU and plpgsql_check)
       # libgdal28, libproj19 for PostGIS
       bullseye) \
-        VERSION_INSTALLS="libicu67 libgdal28 libproj19"; \
+        VERSION_INSTALLS="libicu67 libgdal28 libproj19 $BEFORE_TRIXIE"; \
       ;; \
-      # Version-specific installs for Bookworm (PG17):
+      # Version-specific installs for Bookworm (PG16, PG17):
       # libicu72, locales for collations (including ICU and plpgsql_check)
       # libgdal32, libproj25 for PostGIS
       bookworm) \
-        VERSION_INSTALLS="libicu72 libgdal32 libproj25"; \
+        VERSION_INSTALLS="libicu72 libgdal32 libproj25 $BEFORE_TRIXIE"; \
+      ;; \
+      # Version-specific installs for Trixie (PG18): the 64-bit time_t names
+      # (t64), libsfcgal2 (SFCGAL 2.0.0, as built above), and no Boost (rdkit is
+      # not built for 18 yet).
+      trixie) \
+        VERSION_INSTALLS="libicu76 libgdal36 libproj25 libcurl4t64 libevent-2.1-7t64 libgeos-c1t64 libreadline8t64 libsfcgal2"; \
       ;; \
       *) \
         echo "Unknown Debian version ${DEBIAN_VERSION}" && exit 1 \
@@ -1936,18 +2090,9 @@ RUN apt update && \
         ca-certificates \
         gdb \
         iproute2 \
-        libboost-iostreams1.74.0 \
-        libboost-regex1.74.0 \
-        libboost-serialization1.74.0 \
-        libboost-system1.74.0 \
-        libcurl4 \
-        libevent-2.1-7 \
-        libgeos-c1v5 \
         liblz4-1 \
         libossp-uuid16 \
         libprotobuf-c1 \
-        libreadline8 \
-        libsfcgal1 \
         libxml2 \
         libxslt1.1 \
         libzstd1 \

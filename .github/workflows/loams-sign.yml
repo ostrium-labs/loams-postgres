@@ -156,7 +156,7 @@ jobs:
         run: |
           set -euo pipefail
           [[ $PGV =~ ^v[0-9]+$ && -n $DEBIAN ]] || { echo "sources: true needs pg-version and debian"; exit 1; }
-          python3 -I scripts/loams/compute-sources.py > "$RUNNER_TEMP/sources.Dockerfile"
+          python3 -I scripts/loams/compute-sources.py --pg-version "$PGV" > "$RUNNER_TEMP/sources.Dockerfile"
           docker buildx build -f "$RUNNER_TEMP/sources.Dockerfile" --target loams-sources-out \
             --build-arg "PG_VERSION=$PGV" --build-arg "DEBIAN_VERSION=$DEBIAN" \
             --cache-from "type=registry,ref=ghcr.io/ostrium-labs/loams-postgres-buildcache:compute-$PGV-amd64" \

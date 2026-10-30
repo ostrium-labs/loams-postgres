@@ -11,6 +11,12 @@ POSTGRES_VERSIONS = v18 v17 v16 v15 v14
 # major before its pgxn/neon port; 19 with NF2 Task 18).
 POSTGRES_CORE_VERSIONS =
 
+# Print POSTGRES_VERSIONS: the majors the storage image carries under /usr/local/v<N>
+# (the storage Dockerfile and loams-build-storage.yml read it; NF2 Task 8).
+.PHONY: print-postgres-versions
+print-postgres-versions:
+	@echo $(POSTGRES_VERSIONS)
+
 # CARGO_BUILD_FLAGS: Extra flags to pass to `cargo build`. `--locked`
 # and `--features testing` are popular examples.
 #
