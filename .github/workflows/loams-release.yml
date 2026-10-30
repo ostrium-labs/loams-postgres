@@ -23,6 +23,9 @@
 #      on that asset, into dev (needs the secret LOAMS_BOT_TOKEN, the
 #      loams-postgres-bot App's token, Q733; without it the job says so and
 #      the owner opens the PR by hand).
+# `beta-majors` (e.g. "18", kind=full only; NF2 Task 8) adds majors Loams does not
+# pin yet: their compute images are built and tagged beta, and the pin document
+# lists them under [majors].beta, so the pin pull request brings them in.
 # Weekly on Tuesdays it also checks the cadence: in the first week of a month,
 # a month without a release so far gets an issue on ostrium-labs/loams.
 name: loams-release
@@ -39,6 +42,11 @@ on:
         description: "lp-YYYY.MM.N"
         type: string
         required: true
+      beta-majors:
+        description: 'Majors to add as beta, e.g. "18" (kind=full)'
+        type: string
+        required: false
+        default: ""
   workflow_call:
     inputs:
       kind:
@@ -47,6 +55,10 @@ on:
       version:
         type: string
         required: true
+      beta-majors:
+        type: string
+        required: false
+        default: ""
   schedule:
     - cron: "37 7 * * 2"
 
@@ -76,10 +88,15 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
           KIND: ${{ inputs.kind }}
+          BETA: ${{ inputs.beta-majors }}
         run: |
           set -euo pipefail
           [ "$GITHUB_REF" = refs/heads/main ] || { echo "releases are cut from main, not $GITHUB_REF"; exit 1; }
           case "$KIND" in storage|compute|full) ;; *) echo "kind must be storage, compute or full"; exit 1 ;; esac
+          if [ -n "$BETA" ]; then
+            [ "$KIND" = full ] || { echo "beta-majors needs kind=full (a new major needs both images)"; exit 1; }
+            [[ $BETA =~ ^[0-9]+([ ,][0-9]+)*$ ]] || { echo "beta-majors must be majors like \"18\""; exit 1; }
+          fi
           mapfile -t tags < <(git tag -l 'lp-*')
           args=()
           for t in "${tags[@]}"; do args+=(--tag "$t"); done
@@ -124,6 +141,7 @@ jobs:
     uses: ./.github/workflows/loams-build-compute.yml
     with:
       build-tag: ${{ needs.prepare.outputs.version }}
+      extra-majors: ${{ inputs.beta-majors }}
 
   # The candidate: this commit's digests, the pin document and the notes.
   # Nothing is written to the registry here.
@@ -143,6 +161,7 @@ jobs:
       VERSION: ${{ needs.prepare.outputs.version }}
       PREVIOUS: ${{ needs.prepare.outputs.previous }}
       KIND: ${{ inputs.kind }}
+      BETA: ${{ inputs.beta-majors }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -180,7 +199,7 @@ jobs:
             gh api repos/ostrium-labs/loams/contents/deploy/pins/loams-postgres-images.toml \
               -H 'Accept: application/vnd.github.raw' > "$RUNNER_TEMP/pins.toml"
             majors=$(python3 -I scripts/loams/compute-matrix.py --pins "$RUNNER_TEMP/pins.toml" --sha "$GITHUB_SHA" \
-              | sed -n 's/^majors=//p')
+              --extra-majors "$BETA" | sed -n 's/^majors=//p')
             while read -r m; do
               pgv=$(jq -r .pg_version <<<"$m"); pg=$(jq -r .pg <<<"$m"); minor=$(jq -r .minor <<<"$m")
               debian=$(jq -r .debian <<<"$m"); built=$(jq -r '.tags[0]' <<<"$m")
@@ -212,7 +231,7 @@ jobs:
           [ -n "$STORAGE" ] && args+=(--storage "$STORAGE")
           while read -r kv; do [ -n "$kv" ] && args+=(--compute "$kv"); done < <(jq -r 'to_entries[] | "\(.key)=\(.value)"' <<<"$COMPUTE")
           python3 -I scripts/loams/release-notes.py pin-doc --version "$VERSION" --commit "$GITHUB_SHA" \
-            --loams-pins "$RUNNER_TEMP/loams-pins.toml" "${args[@]}" > "$RUNNER_TEMP/release/loams-postgres-images.toml"
+            --loams-pins "$RUNNER_TEMP/loams-pins.toml" --beta "$BETA" "${args[@]}" > "$RUNNER_TEMP/release/loams-postgres-images.toml"
           prev=()
           if [ -n "$PREVIOUS" ]; then
             git show "$PREVIOUS:LOAMS_PATCHES.md" > "$RUNNER_TEMP/patches-prev.md"

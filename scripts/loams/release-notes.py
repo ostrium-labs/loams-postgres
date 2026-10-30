@@ -5,7 +5,7 @@
     release-notes.py previous  --version lp-YYYY.MM.N [--tag <existing tag> ...]
     release-notes.py pin-doc   --version V --commit SHA --loams-pins <Loams' pin file>
                                [--revisions vendor/revisions.json] [--storage DIGEST]
-                               [--compute <major>=DIGEST ...]
+                               [--compute <major>=DIGEST ...] [--beta "18"]
     release-notes.py notes     --version V --commit SHA --pin-doc <file> --patches-now LOAMS_PATCHES.md
                                [--patches-prev <file>] [--previous lp-...] [--extensions compute/loams-extensions.toml]
 
@@ -19,6 +19,8 @@ pin-doc     prints the release's pin document: Loams' pin file
             and the Postgres minors from vendor/revisions.json. Images the release
             did not build keep Loams' current pins; a release that would leave a
             major's storage and compute minors apart is refused (kind=full then).
+            --beta adds majors Loams does not pin yet to [majors].beta (NF2 Task 8),
+            so they need both images: a full release.
             It is attached to the GitHub Release, and the pin pull request on
             ostrium-labs/loams runs `pins.py set --from-release <its URL>`.
 notes       prints the release notes (Markdown): the digests, the Postgres minors,
@@ -96,7 +98,9 @@ def _render(doc):
     return "\n".join(out) + "\n"
 
 
-def pin_document(version, commit, loams_pins, revisions, storage, compute):
+def pin_document(version, commit, loams_pins, revisions, storage, compute, beta=()):
+    """beta: majors this release adds to [majors].beta (NF2 Task 8: 18 enters as beta through
+    a full release, since Loams cannot list a major before an image of it exists)."""
     check_tag(version, [])
     if not COMMIT.fullmatch(commit):
         raise Refused(f"--commit must be 40 hex characters, got {commit!r}")
@@ -106,14 +110,18 @@ def pin_document(version, commit, loams_pins, revisions, storage, compute):
     if storage is None and not compute:
         raise Refused("a release builds the storage image, the compute images, or both")
     current = tomllib.loads(loams_pins)
-    majors = current["majors"]
+    majors = {k: list(v) if isinstance(v, list) else v for k, v in current["majors"].items()}
+    for n in sorted({int(b) for b in beta}):
+        if any(n in majors.get(k, []) for k in ("supported", "beta", "maintenance")):
+            raise Refused(f"Postgres {n} is already pinned by Loams; --beta adds a new major")
+        majors["beta"] = sorted([*majors.get("beta", []), n])
     listed = sorted({int(v) for k in ("supported", "beta", "maintenance") for v in majors.get(k, [])})
     source = f"ostrium-labs/loams-postgres@{commit}"
 
     def minor(n):
         tree = revisions.get(f"v{n}")
         if not tree:
-            raise Refused(f"Postgres {n} is pinned by Loams but has no tree in vendor/revisions.json")
+            raise Refused(f"Postgres {n} is pinned by Loams (or --beta) but has no tree in vendor/revisions.json")
         return tree[0]
 
     images = {k: dict(v) for k, v in current["images"].items()}
@@ -209,6 +217,7 @@ def main(argv=None):
     s.add_argument("--revisions", default=str(ROOT / "vendor" / "revisions.json"))
     s.add_argument("--storage")
     s.add_argument("--compute", action="append", default=[])
+    s.add_argument("--beta", default="", help='majors this release adds as beta, e.g. "18" (a full release)')
     s = sub.add_parser("notes")
     s.add_argument("--version", required=True)
     s.add_argument("--commit", required=True)
@@ -230,7 +239,8 @@ def main(argv=None):
                 major, _, digest = c.partition("=")
                 compute[major] = digest
             sys.stdout.write(pin_document(args.version, args.commit, Path(args.loams_pins).read_text(),
-                                          json.loads(Path(args.revisions).read_text()), args.storage, compute))
+                                          json.loads(Path(args.revisions).read_text()), args.storage, compute,
+                                          [int(b) for b in args.beta.replace(",", " ").split()]))
         else:
             ext = Path(args.extensions).read_text() if args.extensions and Path(args.extensions).is_file() else None
             prev = Path(args.patches_prev).read_text() if args.patches_prev else ""

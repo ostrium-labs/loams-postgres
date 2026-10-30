@@ -26,7 +26,7 @@ on `ostrium-labs/loams`.
 
    ```
    gh workflow run loams-release.yml --repo ostrium-labs/loams-postgres --ref main \
-     -f kind=full -f version=lp-2026.10.0
+     -f kind=full -f version=lp-2026.10.0 [-f beta-majors=18]
    ```
 
 3. The workflow:
@@ -50,6 +50,18 @@ on `ostrium-labs/loams`.
 
 A partial release (`storage` or `compute`) keeps Loams' other pins. One that would leave
 a major's storage and compute minors apart is refused: release `full`.
+
+**A new major enters as beta through a release** (NF2 Task 8). Loams cannot list a major
+before an image of it exists, so the release adds it: `-f kind=full -f beta-majors=18`
+builds `loams-postgres-compute-v18` too (with `extensions-v18`, the extensions ported to
+18 so far; the smoke lists the missing core ones instead of failing), tags it
+`<pgminor>-beta-lp-YYYY.MM.N`, and writes 18 under `[majors].beta` in the pin
+document, so the pin pull request brings it into Loams. The storage image carries every
+major in the Makefile's `POSTGRES_VERSIONS` (`/usr/local/v<N>`), so a storage release
+gives Loams' decoder and `pg-headers.sh` the new major's headers before its compute
+image exists. Before a release, try the compute image from a branch with
+`gh workflow run loams-build-compute.yml --ref <branch> -f extra-majors=18` (it builds
+the heavy stages for it too, and pushes nothing).
 
 ## What the release needs
 

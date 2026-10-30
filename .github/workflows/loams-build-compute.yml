@@ -3,7 +3,12 @@
 #   (a beta major: <pgminor>-beta-<sha12> and :beta), amd64 and arm64 (Q729).
 # The majors are Loams' pin file's supported, maintenance and beta lists (today
 # 16 and 17), and each major's minor comes from vendor/revisions.json
-# (scripts/loams/compute-matrix.py).
+# (scripts/loams/compute-matrix.py). A major is built only when this commit can
+# build it (its tree in vendor/revisions.json, and in the Makefile's
+# POSTGRES_VERSIONS); a beta major that cannot be built yet is skipped with a
+# notice, so 18 stays opt-in until vendor/postgres-v18 and pgxn/neon at 18 land
+# (NF2 Task 8). By hand, the `extra-majors` input builds a major the pin file
+# does not list yet, tagged beta. 18 and later build on Debian 13 trixie.
 #
 # On main, the heavy stages (scripts/loams/compute-heavy-stages.txt) build first,
 # each in its own job with --target <stage>, writing only its registry cache
@@ -42,6 +47,7 @@ on:
       - about.toml
       - about.hbs
       - docker-compose/ext-src/**
+      - Makefile
       - scripts/loams/compute-matrix.py
       - scripts/loams/compute-heavy-stages.txt
       - scripts/loams/smoke/**
@@ -63,17 +69,29 @@ on:
       - about.toml
       - about.hbs
       - docker-compose/ext-src/**
+      - Makefile
       - scripts/loams/compute-matrix.py
       - scripts/loams/compute-heavy-stages.txt
       - scripts/loams/smoke/**
       - .github/workflows/loams-build-compute.yml
   workflow_dispatch:
+    inputs:
+      extra-majors:
+        description: 'Majors to build besides the pin file''s, as beta (e.g. "18"); each needs its vendor tree'
+        type: string
+        required: false
+        default: ""
   workflow_call:
     inputs:
       build-tag:
         description: "BUILD_TAG, e.g. lp-2026.10.0 (default: the commit's sha12)"
         type: string
         required: false
+      extra-majors:
+        description: 'Majors to build besides the pin file''s, as beta (loams-release.yml''s beta-majors)'
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -104,17 +122,25 @@ jobs:
         id: plan
         env:
           GH_TOKEN: ${{ github.token }}
+          EXTRA_MAJORS: ${{ inputs.extra-majors || '' }}
         run: |
           set -euo pipefail
           gh api repos/ostrium-labs/loams/contents/deploy/pins/loams-postgres-images.toml \
             -H 'Accept: application/vnd.github.raw' > "$RUNNER_TEMP/pins.toml"
           python3 -I scripts/loams/compute-matrix.py --pins "$RUNNER_TEMP/pins.toml" --sha "$GITHUB_SHA" \
-            | tee -a "$GITHUB_OUTPUT"
+            --extra-majors "$EXTRA_MAJORS" > "$RUNNER_TEMP/plan"
+          tee -a "$GITHUB_OUTPUT" < "$RUNNER_TEMP/plan"
+          {
+            echo "majors: $(sed -n 's/^majors=//p' "$RUNNER_TEMP/plan" | jq -r '[.[] | .pg_version + " (" + .debian + (if .beta then ", beta" else "" end) + ")"] | join(", ")')"
+            sed -n 's/^skipped=//p' "$RUNNER_TEMP/plan" | jq -r '.[] | "skipped: Postgres \(.pg): \(.reason)"'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   heavy:
     name: heavy ${{ matrix.target.stage }} (v${{ matrix.target.pg }}, ${{ matrix.arch }})
     needs: plan
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    # Also on a by-hand run with extra majors from a branch: a new major has no
+    # cache yet, and its image build would not fit in one job without these.
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || inputs.extra-majors != '')
     runs-on: ${{ matrix.arch == 'arm64' && (vars.RUNNER_HEAVY_ARM || 'ubuntu-24.04-arm') || (vars.RUNNER_HEAVY || 'ubuntu-24.04') }}
     timeout-minutes: 360
     permissions:
@@ -217,6 +243,7 @@ jobs:
             GIT_VERSION=${{ github.sha }}
             PG_VERSION=${{ matrix.major.pg_version }}
             DEBIAN_VERSION=${{ matrix.major.debian }}
+            EXTENSIONS=${{ matrix.major.extensions }}
             BUILD_TAG=${{ steps.cache.outputs.build-tag }}
           provenance: ${{ env.PUBLISH == 'true' && 'mode=max' || 'false' }}
           sbom: ${{ env.PUBLISH == 'true' }}
@@ -338,10 +365,14 @@ jobs:
           docker run --rm --entrypoint ls "$REF" /usr/share/doc/loams-postgres-compute/LICENSE \
             /usr/share/doc/loams-postgres-compute/NOTICE /usr/share/doc/loams-postgres-compute/LOAMS_PATCHES.md \
             /usr/share/doc/loams-postgres-compute/THIRD_PARTY_LICENSES.html
+      # A beta major whose extensions are not all ported yet (EXTENSIONS=v<N>)
+      # creates the core extensions it has and lists the missing ones: a missing
+      # core extension blocks the major's promotion, not its beta (design §62 §4.7).
       - name: Core extensions (core_extensions_create)
         env:
           REF: ${{ steps.digest.outputs.ref }}
-        run: scripts/loams/smoke/run.sh "$SMOKE_STORAGE_IMAGE" "$REF" "$PG" compute/tests/loams-smoke/core-extensions.sql
+          SQL: ${{ matrix.major.extensions == 'all' && 'core-extensions.sql' || 'core-extensions-available.sql' }}
+        run: scripts/loams/smoke/run.sh "$SMOKE_STORAGE_IMAGE" "$REF" "$PG" "compute/tests/loams-smoke/$SQL"
 
   audit:
     name: audit v${{ matrix.major.pg }}
