@@ -109,14 +109,20 @@ name = "openssl"
 # https://embarkstudios.github.io/cargo-deny/checks/sources/cfg.html
 [sources]
 unknown-registry = "warn"
-# A git source outside allow-git and allow-org fails: git dependencies come from
-# our forks in ostrium-labs, pinned by rev (LP-0005), never from neondatabase.
+# A git source outside allow-git and allow-org fails: git dependencies are pinned
+# by rev (LP-0005), from the official repository where it has the code we pin
+# (Loams D2450) and otherwise from our forks in ostrium-labs. Only the three Neon
+# repositories below are allowed from neondatabase, never the whole organisation.
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 allow-git = [
     # Crate pinned to commit in origin repo due to opentelemetry version.
     # TODO: Remove this once crate is fetched from crates.io again.
     "https://github.com/mattiapenati/tower-otel",
+    # Neon's forks, at the revs our frozen ostrium-labs copies carried (LP-0005).
+    "https://github.com/neondatabase/rust-postgres.git",
+    "https://github.com/neondatabase/azure-sdk-for-rust.git",
+    "https://github.com/neondatabase/framed-websockets",
 ]
 
 [sources.allow-org]
