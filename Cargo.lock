@@ -7621,7 +7621,7 @@ dependencies = [
 [[package]]
 name = "tokio-epoll-uring"
 version = "0.1.0"
-source = "git+https://github.com/ostrium-labs/tokio-epoll-uring.git?rev=5ab61ac890f5aa7fceebb8d311f0e6ac31159d98#5ab61ac890f5aa7fceebb8d311f0e6ac31159d98"
+source = "git+https://github.com/neondatabase/tokio-epoll-uring.git?rev=478ab1a3f54d125d707be0417fe55fe3cb2de8b7#478ab1a3f54d125d707be0417fe55fe3cb2de8b7"
 dependencies = [
  "futures",
  "nix 0.26.4",
@@ -8290,7 +8290,7 @@ dependencies = [
 [[package]]
 name = "uring-common"
 version = "0.1.0"
-source = "git+https://github.com/ostrium-labs/tokio-epoll-uring.git?rev=5ab61ac890f5aa7fceebb8d311f0e6ac31159d98#5ab61ac890f5aa7fceebb8d311f0e6ac31159d98"
+source = "git+https://github.com/neondatabase/tokio-epoll-uring.git?rev=478ab1a3f54d125d707be0417fe55fe3cb2de8b7#478ab1a3f54d125d707be0417fe55fe3cb2de8b7"
 dependencies = [
  "bytes",
  "io-uring",

@@ -77,7 +77,7 @@ Until our first release, Loams runs Neon's last public images (build
 | `ostrium-labs/postgres` | `loams/REL_<N>_STABLE`; `REL_<N>_STABLE_neon` frozen | Maintained |
 | `ostrium-labs/rust-postgres` | `loams/neon` | Not used: the build pins `neondatabase/rust-postgres` at the same rev (LP-0005, Loams D2450); re-forked only if an advisory needs a fix |
 | `ostrium-labs/azure-sdk-for-rust` | `loams/neon` | Not used: the build pins `neondatabase/azure-sdk-for-rust` at the same rev |
-| `ostrium-labs/tokio-epoll-uring` | `loams/main` | Maintained (licence texts) |
+| `ostrium-labs/tokio-epoll-uring` | `loams/main` | Not used: the build pins `neondatabase/tokio-epoll-uring` at main; the licence texts are in `docs/loams/licences/tokio-epoll-uring` |
 | `ostrium-labs/pg_session_jwt` | `loams/main` | Maintained |
 | `ostrium-labs/framed-websockets` | `loams/main` | Archived, not used: the build pins `neondatabase/framed-websockets` at the same rev |
 | `ostrium-labs/autoscaling` | `loams/main` | Archived |

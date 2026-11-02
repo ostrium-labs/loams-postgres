@@ -203,8 +203,9 @@ thiserror = "1.0"
 tikv-jemallocator = { version = "0.6", features = ["profiling", "stats", "unprefixed_malloc_on_supported_platforms"] }
 tikv-jemalloc-ctl = { version = "0.6", features = ["stats"] }
 tokio = { version = "1.43.1", features = ["macros"] }
-# Our fork: upstream main plus licence texts only (LP-0007), until upstream publishes them.
-tokio-epoll-uring = { git = "https://github.com/ostrium-labs/tokio-epoll-uring.git", rev = "5ab61ac890f5aa7fceebb8d311f0e6ac31159d98" }
+# Neon's repository at main (LP-0005, Loams D2450). It ships no licence files; their texts are
+# vendored in docs/loams/licences/tokio-epoll-uring and rendered by about.hbs (LP-0007).
+tokio-epoll-uring = { git = "https://github.com/neondatabase/tokio-epoll-uring.git", rev = "478ab1a3f54d125d707be0417fe55fe3cb2de8b7" }
 tokio-io-timeout = "1.2.0"
 tokio-postgres-rustls = "0.12.0"
 tokio-rustls = { version = "0.26.0", default-features = false, features = ["tls12", "ring"]}
@@ -248,8 +249,7 @@ log = "0.4"
 ## Neon's forks of these libraries, from the official `neondatabase` repositories, pinned by
 ## rev (LP-0005; Loams D2450: official dependencies where they cover our needs). Each rev is on
 ## the original's `neon` (rust-postgres, azure-sdk-for-rust) or `main` (framed-websockets)
-## branch, the same code our frozen ostrium-labs copies carried. tokio-epoll-uring above stays
-## on our fork for its licence texts (LP-0007).
+## branch, the same code our frozen ostrium-labs copies carried. tokio-epoll-uring above too.
 postgres = { git = "https://github.com/neondatabase/rust-postgres.git", rev = "f3cf448febde5fd298071d54d568a9c875a7a62b" }
 postgres-protocol = { git = "https://github.com/neondatabase/rust-postgres.git", rev = "f3cf448febde5fd298071d54d568a9c875a7a62b" }
 postgres-types = { git = "https://github.com/neondatabase/rust-postgres.git", rev = "f3cf448febde5fd298071d54d568a9c875a7a62b" }
