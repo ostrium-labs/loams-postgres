@@ -2,10 +2,14 @@
 
 The pageserver's default I/O engine (`TokioEpollUring`, on Linux) comes from
 `tokio-epoll-uring`, and its `IoBuf` traits (crate `uring-common`) are used
-across `pageserver/src/virtual_file/owned_buffers_io`. Loams Postgres builds
-both from our fork, `ostrium-labs/tokio-epoll-uring`, branch `loams/main`,
-pinned by rev in the workspace `Cargo.toml` (LP-0005) at a commit tagged
-`loams-<date>-<n>`.
+across `pageserver/src/virtual_file/owned_buffers_io`.
+
+**Since 2026-11-02 (Loams D2450, no forks)** Loams Postgres builds both from
+Neon's repository, `neondatabase/tokio-epoll-uring` at `478ab1a3` (its `main`),
+pinned by rev in the workspace `Cargo.toml` (LP-0005). The licence texts our
+former fork added are kept in this repository, in
+`docs/loams/licences/tokio-epoll-uring/`, and `about.hbs` renders the copyright
+notices into `THIRD_PARTY_LICENSES.html`. The sections below are the history.
 
 ## The finding (design §51 §11, D817)
 

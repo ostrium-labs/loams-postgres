@@ -23,19 +23,7 @@ targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"]
 ignore-dev-dependencies = true
 ignore-build-dependencies = false
 
-# tokio-epoll-uring keeps its licence texts at the root of its repository, not in
-# the crate's directory (our fork, LP-0007), so cargo about is pointed at them;
-# the checksums pin the texts of loams-20261013-2. uring-common's
-# LICENSE-tokio-uring is in its crate directory and is found as is.
-[tokio-epoll-uring.clarify]
-license = "MIT OR Apache-2.0"
-
-[[tokio-epoll-uring.clarify.git]]
-path = "LICENSE-MIT"
-license = "MIT"
-checksum = "0eced0c7b81bc123b29d8c616999936d8aad8a43acffcff6659d47a8f85e9e37"
-
-[[tokio-epoll-uring.clarify.git]]
-path = "LICENSE-APACHE"
-license = "Apache-2.0"
-checksum = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+# tokio-epoll-uring and uring-common come from Neon's repository (Loams D2450),
+# which ships no licence files: cargo about renders their manifests' licences
+# (MIT OR Apache-2.0; MIT) with the canonical texts, and about.hbs adds the
+# copyright notices from docs/loams/licences/tokio-epoll-uring (LP-0007).
