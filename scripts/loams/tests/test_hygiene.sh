@@ -105,7 +105,7 @@ no_private_sources() {
   echo 'docker/Dockerfile.ext   # fixture' > "$fx/scripts/loams/private-sources-allowlist.txt"
   "$scripts/check-no-private-sources.sh" "$fx" > /dev/null || fail "the allowlist did not skip the file"
 
-  # Neon's three frozen library forks by full rev pass in Cargo.toml and
+  # Neon's four library repositories by full rev pass in Cargo.toml and
   # Cargo.lock (D2450, LP-0005); by branch, short rev, another repository or
   # another file type they fail.
   local sha=f3cf448febde5fd298071d54d568a9c875a7a62b
@@ -114,7 +114,7 @@ no_private_sources() {
   "$scripts/check-no-private-sources.sh" "$fx" > /dev/null || fail "a rev-pinned Neon library fork was refused"
   for line in 'postgres = { git = "https://github.com/neondatabase/rust-postgres.git", branch = "neon" }' \
               'postgres = { git = "https://github.com/neondatabase/rust-postgres.git", rev = "f3cf448f" }' \
-              "x = { git = \"https://github.com/neondatabase/tokio-epoll-uring.git\", rev = \"$sha\" }" \
+              "x = { git = \"https://github.com/neondatabase/autoscaling.git\", rev = \"$sha\" }" \
               "x = { git = \"https://github.com/neondatabase/neon\", rev = \"$sha\" }"; do
     printf '[dependencies]\n%s\n' "$line" > "$fx/Cargo.toml"
     "$scripts/check-no-private-sources.sh" "$fx" > /dev/null 2>&1 && fail "accepted: $line"

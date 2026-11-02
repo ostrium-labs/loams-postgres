@@ -13,8 +13,8 @@
 # A file listed in scripts/loams/private-sources-allowlist.txt is skipped.
 #
 # One exception by source, not by file (Loams D2450, LP-0005): in Cargo.toml and
-# Cargo.lock, a git dependency on one of Neon's three frozen library forks
-# (rust-postgres, azure-sdk-for-rust, framed-websockets) pinned by a full
+# Cargo.lock, a git dependency on one of Neon's four library repositories
+# (rust-postgres, azure-sdk-for-rust, framed-websockets, tokio-epoll-uring) pinned by a full
 # 40-hex rev is allowed, because the rev we pin is on the official repository.
 # The same repositories by branch or tag, and every other neondatabase source,
 # still fail.
@@ -26,7 +26,7 @@ root=${1:-$(git rev-parse --show-toplevel)}
 allowlist="$root/scripts/loams/private-sources-allowlist.txt"
 pattern='neondatabase|cache\.neon\.build'
 # Cargo.toml: `git = "<url>", rev = "<sha>"`; Cargo.lock: `"git+<url>?rev=<sha>#<sha>"`.
-pinned_neon_git='https://github\.com/neondatabase/(rust-postgres\.git|azure-sdk-for-rust\.git|framed-websockets)(", rev = "[0-9a-f]{40}"|\?rev=[0-9a-f]{40}#[0-9a-f]{40}")'
+pinned_neon_git='https://github\.com/neondatabase/(rust-postgres\.git|azure-sdk-for-rust\.git|framed-websockets|tokio-epoll-uring\.git)(", rev = "[0-9a-f]{40}"|\?rev=[0-9a-f]{40}#[0-9a-f]{40}")'
 
 allowed=""
 if [[ -f $allowlist ]]; then
