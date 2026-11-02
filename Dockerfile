@@ -7,7 +7,7 @@
 # this line (scripts/loams/pin-build-tools.sh). Until its first build, this is
 # Neon's last public build-tools (the 77e22e4b build's, d4a4001a-bookworm),
 # mirrored byte for byte to ostrium-labs/neon-archive (NF1 Task 1; audit clean).
-ARG BUILD_TOOLS=ghcr.io/ostrium-labs/loams-postgres-build-tools@sha256:bb693814c219898fd506455b632ca3fa347fa6e1eb0c3da8d1eeda265fb20691
+ARG BUILD_TOOLS=ghcr.io/ostrium-labs/loams-postgres-build-tools@sha256:69c8137a01b46a98c9df86014c5b65ea74a7fcc6446d66deca83fa8c0e95e10f
 ARG DEBIAN_VERSION=bookworm
 ARG DEBIAN_FLAVOR=${DEBIAN_VERSION}-slim
 
