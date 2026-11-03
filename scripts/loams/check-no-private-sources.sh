@@ -12,12 +12,21 @@
 # comment and is allowed.
 # A file listed in scripts/loams/private-sources-allowlist.txt is skipped.
 #
+# One exception by source, not by file (Loams D2450, LP-0005): in Cargo.toml and
+# Cargo.lock, a git dependency on one of Neon's four library repositories
+# (rust-postgres, azure-sdk-for-rust, framed-websockets, tokio-epoll-uring) pinned by a full
+# 40-hex rev is allowed, because the rev we pin is on the official repository.
+# The same repositories by branch or tag, and every other neondatabase source,
+# still fail.
+#
 # Usage: check-no-private-sources.sh [root]   (default: the current repository)
 # Test: scripts/loams/tests/test_hygiene.sh (no_private_sources).
 set -euo pipefail
 root=${1:-$(git rev-parse --show-toplevel)}
 allowlist="$root/scripts/loams/private-sources-allowlist.txt"
 pattern='neondatabase|cache\.neon\.build'
+# Cargo.toml: `git = "<url>", rev = "<sha>"`; Cargo.lock: `"git+<url>?rev=<sha>#<sha>"`.
+pinned_neon_git='https://github\.com/neondatabase/(rust-postgres\.git|azure-sdk-for-rust\.git|framed-websockets|tokio-epoll-uring\.git)(", rev = "[0-9a-f]{40}"|\?rev=[0-9a-f]{40}#[0-9a-f]{40}")'
 
 allowed=""
 if [[ -f $allowlist ]]; then
@@ -33,6 +42,12 @@ while IFS= read -r -d '' file; do
   fi
   # -n: line numbers; -i: any case. Full-line comments are dropped.
   hits=$(grep -niE -- "$pattern" "$file" | grep -vE '^[0-9]+:[[:space:]]*#' || true)
+  if [[ -n $hits && ( $rel == Cargo.lock || $rel == */Cargo.lock || $rel == Cargo.toml || $rel == */Cargo.toml ) ]]; then
+    # Keep a line only if something still matches once the pinned sources are cut out.
+    hits=$(while IFS= read -r hit; do
+      grep -qiE -- "$pattern" < <(sed -E "s~$pinned_neon_git~~g" <<<"$hit") && printf '%s\n' "$hit"
+    done <<<"$hits" || true)
+  fi
   if [[ -n $hits ]]; then
     sed "s|^|$rel:|" <<<"$hits"
     found=$((found + 1))
